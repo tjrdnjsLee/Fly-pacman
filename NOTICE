@@ -5,8 +5,11 @@ This project includes or builds on the following third-party material.
 
 1. pacman-ai (https://github.com/vikranthreddimasu/pacman-ai)
    Licensed under the MIT License.
-   Copyright notice: TODO(미결): copy the exact copyright line from the
-   upstream LICENSE file into third_party/pacman_ai/LICENSE and here.
+   Used so far: src/flypac/maps/_maze_data.py (pacman/engine/maze_data.py,
+   upstream commit 33612801815026f4ef4bb6a709009e20a929a83d).
+   TODO(미결): the upstream repository declares "MIT" in its README but ships no
+   LICENSE file and names no copyright holder, so no copyright line is available
+   to reproduce here. Ask the author for one before the repository is promoted.
 
 2. hemibrain connectome data (Janelia FlyEM)
    Licensed under CC-BY 4.0. Attribution: "Scheffer et al. 2020, A connectome

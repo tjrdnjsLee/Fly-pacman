@@ -22,6 +22,18 @@ TRD 5절이 모양을 정하지 않은 곳을 M0 인터페이스 자리 단계�
 - `reset` 전에 `step`, `c`, `total`을 부르면 `RuntimeError`. 이후 mask 길이가 처음 `B`와 다르면 `ValueError`. `S`의 모양이 `(B,N)`이 아니어도 `ValueError`.
 - `step(S, mask)`의 mask는 `(B,)` bool이고 **참인 게임만 갱신**한다 (거짓 = 동결).
 
+
+## 2-1. 감각 (senses/sense.py)
+
+- `sense(odor, phero, views, info, c0, *, nbr)`: TRD 5.4의 표가 이웃표 `nbr`(N,4)의 출처를 정하지 않아, 키워드 전용 인자 `nbr`을 더했다. 위치 인자 다섯 개는 TRD 그대로다. 실행기는 `nbr=map.nbr`를 넘긴다. `legal`, `decide`는 `info`(엔진의 `decision_info()`)를 그대로 쓴다.
+
+## 2-2. 맵 (maps/original.py)
+
+- 미로 원본은 `maps/_maze_data.py`(pacman-ai의 `maze_data.py`에 머리말만 붙여 그대로 복사). 칸 번호는 행 우선 순서 0..319.
+- 열은 감싸서 터널을 이웃표에 연결한다 (14행 0열 ↔ 27열).
+- `fly_starts`: 0번은 집 밖(원본 Blinky 자리), 1~3번은 집 안.
+- `move_mask["pacman"]`은 유령 집·문으로 들어가는 이동을 막고, `move_mask["fly"]`는 `nbr >= 0` 전부.
+
 ## 3. 엔진 (engine/game.py)
 
 - `Game`은 한 판 단위, `VecGame(B, map, cfg, rngs)`는 `Game` B개를 도는 얇은 묶음이다. 규칙은 `Game`에만 있다 (TRD 원칙 1).
