@@ -76,3 +76,49 @@ def test_config_utf8_roundtrip(tmp_path):
     cfg = load_config(p)
     assert cfg.experiment == "시험" and cfg.odor.lam == 0.05 and cfg["odor"]["D"] == 1.0
     assert len(cfg.hash()) == 16
+
+
+# ---- Event 종류별 검증 (전수) ----
+from flypac.core.events import FLY_KINDS  # noqa: E402
+
+
+def _valid_cause(kind):
+    return {Kind.GAME_OVER: "PACMAN", Kind.Z_CHANGE: "POWER_START"}.get(kind)
+
+
+@pytest.mark.parametrize("kind", list(Kind))
+def test_event_fly_rule_for_every_kind(kind):
+    cause = _valid_cause(kind)
+    if kind in FLY_KINDS:
+        Event(kind, 0, 0, 0, True, cause)
+        with pytest.raises(ValueError):
+            Event(kind, 0, 0, -1, True, cause)
+    else:
+        Event(kind, 0, 0, -1, True, cause)
+        with pytest.raises(ValueError):
+            Event(kind, 0, 0, 0, True, cause)
+
+
+@pytest.mark.parametrize("kind", list(Kind))
+def test_event_cause_rule_for_every_kind(kind):
+    fly = 0 if kind in FLY_KINDS else -1
+    if kind in (Kind.GAME_OVER, Kind.Z_CHANGE):
+        with pytest.raises(ValueError):
+            Event(kind, 0, 0, fly, True, None)
+        with pytest.raises(ValueError):
+            Event(kind, 0, 0, fly, True, "BOGUS")
+    else:
+        Event(kind, 0, 0, fly, True, None)
+        with pytest.raises(ValueError):
+            Event(kind, 0, 0, fly, True, "FLIES")
+
+
+def test_event_cause_sets():
+    for w in ("FLIES", "PACMAN", "CENSORED"):
+        Event(Kind.GAME_OVER, 0, 0, -1, True, w)
+    with pytest.raises(ValueError):
+        Event(Kind.GAME_OVER, 0, 0, -1, True, "POWER_END")  # 다른 종류의 cause
+    for c in ("POWER_START", "POWER_END", "REVIVE"):
+        Event(Kind.Z_CHANGE, 0, 0, 1, True, c)
+    with pytest.raises(ValueError):
+        Event(Kind.Z_CHANGE, 0, 0, 1, True, "FLIES")

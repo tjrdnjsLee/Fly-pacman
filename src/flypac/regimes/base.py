@@ -9,6 +9,17 @@ import numpy as np
 from flypac.core.events import Event
 
 
+def fly_index(ev: Event, n_flies: int = 4) -> int:
+    """사건의 초파리 번호를 배열 인덱스로 쓰기 전에 검사한다.
+
+    fly = -1이 numpy 인덱스로 들어가면 오류 없이 마지막 초파리를 가리키므로,
+    체제 구현은 R[ev.fly] 대신 R[fly_index(ev, F)]를 쓴다.
+    """
+    if not 0 <= ev.fly < n_flies:
+        raise ValueError(f"{ev.kind} 사건의 초파리 번호 {ev.fly}가 0 <= fly < {n_flies}를 벗어났다")
+    return ev.fly
+
+
 class Regime(ABC):
     def __init__(self, cfg):
         raise NotImplementedError

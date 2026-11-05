@@ -49,32 +49,52 @@ class Game:
 
 
 class VecGame:
-    """Game B개 묶음. 자동 초기화 없음 (TRD 5.2). 각 메서드는 Game의 같은 이름 메서드를 B개에 적용한다."""
+    """Game B개를 도는 얇은 묶음 (TRD 5.2, 원칙 1). 규칙은 모두 Game에 있고 여기는 반복과 배열 쌓기만 한다.
+
+    자동 초기화 없음. 각 메서드는 Game의 같은 이름 메서드를 B개에 적용한다.
+    FakeVecGame은 `game_cls`만 바꾼다.
+    """
+
+    game_cls = Game
 
     def __init__(self, B: int, map: MapSpec, cfg, rngs: list[np.random.Generator]):
-        raise NotImplementedError
+        if len(rngs) != B:
+            raise ValueError(f"rngs 길이 {len(rngs)}가 B={B}와 다르다")
+        self.B = B
+        self.games = [self.game_cls(map, cfg, rng) for rng in rngs]
 
     def step_pacman(self, actions: np.ndarray) -> list[list[Event]]:
         """actions (B,) 절대 방향."""
-        raise NotImplementedError
+        return [g.step_pacman(int(a)) for g, a in zip(self.games, actions)]
 
     def step_flies(self, actions: np.ndarray) -> tuple[list[list[Event]], np.ndarray, np.ndarray]:
         """actions (B,F). 반환: (events 게임별 목록, executed (B,F), active (B,F))."""
-        raise NotImplementedError
+        events, executed, active = [], [], []
+        for g, a in zip(self.games, actions):
+            ev, ex, ac = g.step_flies(a)
+            events.append(ev)
+            executed.append(ex)
+            active.append(ac)
+        return events, np.stack(executed), np.stack(active)
 
     def tick_timers(self) -> list[list[Event]]:
-        raise NotImplementedError
+        return [g.tick_timers() for g in self.games]
 
     def views(self) -> list[GameView]:
-        raise NotImplementedError
+        return [g.view() for g in self.games]
 
     def decision_info(self) -> tuple[np.ndarray, np.ndarray]:
         """(legal (B,F,4) bool, decide (B,F) bool)."""
-        raise NotImplementedError
+        infos = [g.decision_info() for g in self.games]
+        return np.stack([i[0] for i in infos]), np.stack([i[1] for i in infos])
 
     def reset_life(self, mask: np.ndarray) -> None:
         """mask (B,) bool: 초기화할 게임."""
-        raise NotImplementedError
+        for g, m in zip(self.games, mask):
+            if m:
+                g.reset_life()
 
     def reset_game(self, mask: np.ndarray) -> None:
-        raise NotImplementedError
+        for g, m in zip(self.games, mask):
+            if m:
+                g.reset_game()
