@@ -131,4 +131,4 @@ TRD 다음으로 [`docs/DECISIONS.md`](docs/DECISIONS.md)를 따른다.
 
 ## 11. 문의처
 
-저장소의 [Issues](https://github.com/tjrdnjsLee/Fly-pacman/issues)에 남기거나 관리자에게 직접 묻는다. TODO: 팀 연락 채널을 관리자가 여기에 적는다.
+[GitHub Issues](https://github.com/tjrdnjsLee/Fly-pacman/issues). 팀원은 팀 단톡방.

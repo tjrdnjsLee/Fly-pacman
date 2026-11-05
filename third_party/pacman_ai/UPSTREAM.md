@@ -8,6 +8,10 @@
 
 ## 라이선스 상태
 
-원 저장소의 README는 라이선스를 "MIT"로만 적고, **LICENSE 파일도 저작권자 표기도 없다** (복사 시점 확인).
-그래서 원 LICENSE를 이 폴더에 둘 수 없다. 저작권 줄을 지어내지 않았다.
-TODO: 원 저자에게 LICENSE 파일(저작권 줄 포함)을 요청하거나 확인해 이 폴더와 `NOTICE`에 반영한다.
+고지 문구 (`NOTICE`와 같다):
+
+> pacman-ai by vikranthreddimasu (https://github.com/vikranthreddimasu/pacman-ai),
+> MIT license as stated in its README; no LICENSE file at commit 33612801815026f4ef4bb6a709009e20a929a83d.
+
+원 저장소의 README는 라이선스를 "MIT"로만 적고, LICENSE 파일도 저작권자 표기도 없다 (복사 시점 확인).
+그래서 원 LICENSE를 이 폴더에 둘 수 없고, 저작권 줄도 지어내지 않았다.
