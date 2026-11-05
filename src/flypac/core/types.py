@@ -36,6 +36,9 @@ class GameView:
     learning_active: bool
     elroy_stage: int
     frozen: bool
+    # 속도 누적값 (재생 로그의 보간용, TRD 19.6). 기본값이 있어 TRD 4.6의 필드 구성을 깨지 않는다.
+    pac_acc: float = 0.0
+    fly_acc: np.ndarray | None = None  # (F,)
 
 
 @dataclass(frozen=True)

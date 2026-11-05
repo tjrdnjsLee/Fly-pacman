@@ -15,5 +15,5 @@ reward: {p: 0.25, q: 1.0}                  # TODO(미결 4)
 pacman: {kind: rule_based}
 rule_based: {danger_dist: 6, chase_dist: 8}   # TODO(미결 6)
 ghosts: {kind: random}
-replay: {keep_games: [1]}                  # TODO(미결 17): 남길 판 고르기는 고정 번호만
+replay: {keep_games: [1], brain: false}   # TODO(미결 17): 남길 판 고르기는 고정 번호만 (협공 판정 d는 미정)
 run:    {max_loop_ticks: 200000}

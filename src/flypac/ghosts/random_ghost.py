@@ -13,6 +13,7 @@ class RandomGhost(GhostController):
         self.B, self.F = B, 4
         self.rng = rng
         self.proposed = np.full((B, self.F), -1, dtype=np.int64)
+        self.last_pi = np.zeros((B, self.F, 4))  # 재생 로그용: 고른 행동 확률 (가능한 행동에 균등)
         self.n_committed = np.zeros((B, self.F), dtype=np.int64)
         self.n_committed_active = np.zeros((B, self.F), dtype=np.int64)
         self.reward_total = np.zeros((B, self.F))
@@ -23,12 +24,15 @@ class RandomGhost(GhostController):
 
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:
         out = np.full((self.B, self.F), -1, dtype=np.int64)
+        self.last_pi = np.zeros((self.B, self.F, 4))
         for b in range(self.B):
             if not alive[b]:
                 continue
             for k in range(self.F):
                 if obs.decide[b, k]:
-                    out[b, k] = self.rng.choice(np.flatnonzero(obs.legal[b, k]))
+                    legal = np.flatnonzero(obs.legal[b, k])
+                    out[b, k] = self.rng.choice(legal)
+                    self.last_pi[b, k, legal] = 1.0 / len(legal)
         self.proposed = out
         return out
 

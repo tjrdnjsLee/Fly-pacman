@@ -223,6 +223,8 @@ class FakeGame(Game):
             learning_active=self.learning_active,
             elroy_stage=0,
             frozen=self.frozen,
+            pac_acc=float(self.pac_acc),
+            fly_acc=self.fly_acc.copy(),
         )
 
 

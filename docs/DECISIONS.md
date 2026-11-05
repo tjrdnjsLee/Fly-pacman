@@ -102,3 +102,17 @@ TRD 5.8이 `...`로 비워 둔 인자:
 - 실행기의 `replay_frame`에는 4번(팩맨 이동 뒤)에 만든 `views`와 5번의 `obs`를 넘긴다 (둘이 같은 순간의 상태다). 종료 상태는 13번에서 `view`를 다시 읽어 `on_life_end`, `on_game_end`에 넘긴다.
 - 조건 `b0`, `b0p`, `b1`의 보상 체제는 쓰이지 않는다. 지금은 `Regime1`을 대신 둔다 (TODO).
 - 가짜 엔진(`engine/fake.py`)은 파워 쿠키 효과, 과일, 엘로이, 터널 감속을 생략한다. 따라서 `z`는 항상 0이고 `EATEN`, `Z_CHANGE`, `POWER_*`는 생기지 않는다 (M1에서 채운다). 불가능한 행동을 받으면 `ValueError`. 행동 -1은 유일한 경로, 갈림길이면 직진을 우선한다.
+
+## 8. 기록과 재생 로그 (M0 5단계)
+
+- `GameView`에 기본값이 있는 필드 `pac_acc: float = 0.0`, `fly_acc: (F,) | None = None`을 끝에 더했다. 재생 로그의 보간(TRD 19.6)이 속도 누적값을 쓰기 때문이다. TRD 4.6의 기존 필드는 그대로다.
+- `Recorder.replay_frame(game, views, obs, odor, phero, brain)`의 `brain`은 사전이다: `action (B,F)`, `pi (B,F,4)`는 항상, `replay.brain`이 켜지면 `kc_active`, `pn_input`, `mbon_out`, `dan`도 (모두 앞 축이 B). 실행기가 `{"action": 6번의 반환값, "pi": 조종기.last_pi}`를 만들고, 조종기에 `replay_info()`가 있으면 그 사전을 합친다 (뇌 담당이 뇌 필드를 여기서 낸다). `replay.brain`이 켜졌는데 필드가 없으면 `ValueError`.
+- 재생 로그의 `T`는 실행기의 틱 수와 같고, `ev_tick`은 엔진 틱이라 프레임 번호와 같다. 목숨이 바뀌어도 한 판의 프레임은 이어진다.
+- `replay_end(game, keep)`는 판 번호를 올리는 곳이기도 하다 (파일 이름의 `g<판>`은 올리기 전 번호). `on_game_end` → `replay_end` 순서로 부른다.
+- CSV 열은 TRD 13.3의 한글 이름을 그대로 쓴다. `utf-8-sig`로 쓰고 읽는다. 중단(`CENSORED`)과 미포획은 "포획까지 틱", "잡은 초파리"를 빈칸으로 둔다.
+- 해석을 정한 열 (TRD가 정의를 주지 않음):
+  - `누적 결정 수`: 결정을 요청받은 횟수 (`obs.decide`가 참이고 게임이 동결이 아닌 초파리 틱). 도중 종료로 실행되지 않은 제안도 센다.
+  - `결정에서 보상까지 지연(결정 수)`: 보상 사건마다 "그 초파리의 직전 보상 사건(또는 목숨 시작) 이후 결정 횟수"의 평균. 보상 사건이 없으면 빈칸.
+  - `상태 전환 시 반전 기회`: `Z_CHANGE`(원인 파워 시작·종료)의 횟수. `반전 횟수`는 빈칸 (TODO(M1): 파워 쿠키가 생긴 뒤 센다).
+- 남길 판은 `replay.keep_games` (고정 판 번호 목록)뿐이다. TODO(미결 17): 협공 판정 거리 `d`, 사건 기준, 저장 용량 상한(`replay.max_bytes`는 임시 구현: 넘으면 그 판을 버린다).
+- 가짜 로그 생성기(`replay/synth.py`)의 회로 크기(`PLACEHOLDER_N_KC` 등)는 자리표시값이다 (TODO(미결 2, 3)).

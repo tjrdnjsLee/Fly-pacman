@@ -17,9 +17,7 @@ from flypac.field.odor import Field
 from flypac.ghosts.random_ghost import RandomGhost
 from flypac.maps.original import load_original
 from flypac.pacman.rule_based import RuleBasedPacman
-from flypac.regimes.regime1 import Regime1
-from flypac.regimes.regime2 import Regime2
-from flypac.regimes.regime3 import Regime3
+from flypac.regimes import make_regime
 from flypac.senses.sense import sense
 
 _END_KINDS = (Kind.LIFE_LOST, Kind.GAME_OVER)
@@ -33,6 +31,7 @@ class NullRecorder:
     def on_game_end(self, game, view, events): ...
     def replay_frame(self, game, views, obs, odor, phero, brain): ...
     def replay_end(self, game, keep): ...
+    def close(self): ...
 
 
 def _slice_obs(obs: FlyObs, b: int) -> FlyObs:
@@ -114,6 +113,9 @@ class Runner:
                     Sp[b, now[b].fly_cell[k]] += em[k]
             self.phero.step(Sp, step_mask)
 
+        brain = {"action": fly_act, "pi": getattr(self.ghosts, "last_pi", np.zeros((B, F, 4)))}
+        if hasattr(self.ghosts, "replay_info"):  # 뇌 필드 (TRD 19.13): 뇌 담당이 제공
+            brain.update(self.ghosts.replay_info())
         R = np.zeros((B, F))                                              # 11
         for b in range(B):
             if running[b]:
@@ -123,7 +125,7 @@ class Runner:
         for b in range(B):                                                # 12
             if running[b]:
                 self.recorder.on_events(b, events[b], views[b])
-                self.recorder.replay_frame(b, views, obs, self.odor.c, phero_c, None)
+                self.recorder.replay_frame(b, views, obs, self.odor.c, phero_c, brain)
 
         self._end_of_tick(events, running)                                # 13
         self.total_ticks += 1
@@ -169,6 +171,9 @@ class Runner:
             if self.total_ticks >= guard:
                 raise RuntimeError(f"무한 루프 감시: {guard}틱 안에 끝나지 않았다")
             self.tick()
+        close = getattr(self.recorder, "close", None)
+        if close is not None:
+            close()
         return {"ticks": self.total_ticks, "games": list(self.results)}
 
 
@@ -194,6 +199,5 @@ def build_runner(cfg, recorder=None) -> Runner:
     if cfg.ghosts.kind != "random":
         raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: flybrain(뇌 담당), original(B1)
     ghosts = RandomGhost(cfg, B, make_rng(seeds[0], 0, "ghost"))
-    # b0, b0p, b1은 학습하지 않으므로 보상 체제는 쓰이지 않는다. TODO: 기준선 조건의 체제 처리
-    regime = {"regime2": Regime2, "regime3": Regime3}.get(condition, Regime1)(cfg)
+    regime = make_regime(cfg)
     return Runner(cfg, amap, game, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())
