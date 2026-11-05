@@ -33,7 +33,10 @@ class GhostController(ABC):
 
     @abstractmethod
     def on_release(self, mask: np.ndarray) -> None:
-        """활성 시작: e = 0, R_n = 0. x, h는 유지. mask (B,F) bool."""
+        """활성 시작: e = 0, R_n = 0. x, h는 유지. mask (B,) bool: 게임 단위 (ALL_RELEASED가 난 게임, TRD 4.5).
+
+        학습 활성은 게임 전체에 대해 시작한다. ALL_RELEASED의 fly는 기록용이며 초기화 대상이 아니다.
+        """
         raise NotImplementedError
 
     @abstractmethod

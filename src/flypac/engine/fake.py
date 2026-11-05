@@ -10,4 +10,6 @@ class FakeGame(Game):
 
 
 class FakeVecGame(VecGame):
-    """TRD 5.2 `VecGame`과 같은 인터페이스."""
+    """TRD 5.2 `VecGame`과 같은 인터페이스. 묶는 대상만 FakeGame이다."""
+
+    game_cls = FakeGame

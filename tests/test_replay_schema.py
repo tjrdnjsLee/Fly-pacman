@@ -61,3 +61,12 @@ def test_version_and_unknown_field():
     a[s.META_KEY] = np.array(s.make_meta("x", 0, 0, "", "", "").replace('"format_version": 2', '"format_version": 1'))
     with pytest.raises(s.SchemaError):
         s.validate(a)
+
+
+def test_kind_codes_cover_all_kinds_and_are_stable():
+    from flypac.core.events import Kind
+
+    assert set(s.KIND_CODES) == {k.value for k in Kind}
+    assert sorted(s.KIND_CODES.values()) == list(range(len(Kind)))
+    assert s.KIND_CODES["CATCH"] == 0 and s.KIND_CODES["ALL_RELEASED"] == 10
+    assert all(v < 127 for v in s.KIND_CODES.values())  # int8

@@ -18,6 +18,22 @@ N_SENSE = 8  # 냄새 4방향 + 페로몬 4방향 (TRD 19.4)
 N_ACTIONS = 4
 N_PN = 9  # 냄새 4 + 상태 z 1 + 페로몬 4 (TRD 10.1, 19.13)
 
+# 사건 종류의 정수 코드. 한 번 정하면 바꾸지 않는다 (새 종류는 뒤에 추가).
+KIND_CODES = {
+    "CATCH": 0,
+    "EATEN": 1,
+    "DOT": 2,
+    "ENERGIZER": 3,
+    "FRUIT": 4,
+    "LIFE_LOST": 5,
+    "GAME_OVER": 6,
+    "POWER_START": 7,
+    "POWER_END": 8,
+    "Z_CHANGE": 9,
+    "ALL_RELEASED": 10,
+}
+CODE_KINDS = {v: k for k, v in KIND_CODES.items()}
+
 META_KEY = "meta"
 META_FIELDS = ("format_version", "condition", "seed", "game_no", "git_commit", "config_hash", "map_name")
 
@@ -46,7 +62,7 @@ FIELDS = (
     Field("score", ("T",), "int32", "base", "점수"),
     Field("fruit", ("T",), "int8", "base", "과일 유무"),
     Field("ev_tick", ("E",), "int32", "base", "사건의 틱"),
-    Field("ev_kind", ("E",), "<U16", "base", "사건 종류 (core.events.Kind 값)"),
+    Field("ev_kind", ("E",), "int8", "base", "사건 종류 정수 코드 (KIND_CODES)"),
     Field("ev_fly", ("E",), "int8", "base", "사건의 초파리 번호, 없으면 -1"),
     Field("odor_field", ("T", "N"), "float16", "base", "냄새 장"),
     Field("sense", ("T", N_FLIES, N_SENSE), "float16", "base", "감각값: 냄새 4 + 페로몬 4 (자기중심 순서)"),
