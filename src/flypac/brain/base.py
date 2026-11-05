@@ -13,6 +13,9 @@ from flypac.core.types import FlyObs, GameView
 
 
 class GhostController(ABC):
+    # 실행기는 이 값이 참인 조종기(B1)에만 views를 넘긴다 (TRD 원칙 2)
+    uses_views = False
+
     @abstractmethod
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:
         """제안: 자기중심 행동과 그 확률 π를 계산해 보관. 상태는 바꾸지 않음.

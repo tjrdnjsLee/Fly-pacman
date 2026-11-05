@@ -11,6 +11,8 @@ from flypac.core.types import FlyObs, GameView
 class OriginalGhosts(GhostController):
     """원작 규칙의 절대 방향을 자기중심으로 변환해 돌려준다."""
 
+    uses_views = True
+
     def __init__(self, cfg, B: int, rng: np.random.Generator):
         raise NotImplementedError
 

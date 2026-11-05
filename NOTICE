@@ -3,10 +3,12 @@ Copyright (c) 2026 Fly Connectome Team, Pusan National University
 
 This project includes or builds on the following third-party material.
 
-1. pacman-ai (https://github.com/vikranthreddimasu/pacman-ai)
-   Licensed under the MIT License.
-   Copyright notice: TODO(미결): copy the exact copyright line from the
-   upstream LICENSE file into third_party/pacman_ai/LICENSE and here.
+1. pacman-ai by vikranthreddimasu (https://github.com/vikranthreddimasu/pacman-ai),
+   MIT license as stated in its README; no LICENSE file at commit
+   33612801815026f4ef4bb6a709009e20a929a83d.
+   Used so far: src/flypac/maps/_maze_data.py (pacman/engine/maze_data.py), and a
+   verbatim copy of pacman/engine/ in third_party/pacman_ai/engine/.
+   No copyright line is reproduced here because the upstream repository states none.
 
 2. hemibrain connectome data (Janelia FlyEM)
    Licensed under CC-BY 4.0. Attribution: "Scheffer et al. 2020, A connectome
