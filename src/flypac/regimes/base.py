@@ -1,4 +1,4 @@
-"""보상 체제 공통 틀 (TRD 5.6, 11절). 자리 파일. 활성이 거짓인 사건은 무시한다 (TRD 4.5)."""
+"""보상 체제 공통 틀 (TRD 5.6, 11절). 활성이 거짓인 사건은 무시한다 (TRD 4.5)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ import numpy as np
 
 from flypac.core.events import Event
 
+N_FLIES = 4
 
-def fly_index(ev: Event, n_flies: int = 4) -> int:
+
+def fly_index(ev: Event, n_flies: int = N_FLIES) -> int:
     """사건의 초파리 번호를 배열 인덱스로 쓰기 전에 검사한다.
 
     fly = -1이 numpy 인덱스로 들어가면 오류 없이 마지막 초파리를 가리키므로,
@@ -22,7 +24,10 @@ def fly_index(ev: Event, n_flies: int = 4) -> int:
 
 class Regime(ABC):
     def __init__(self, cfg):
-        raise NotImplementedError
+        self.cfg = cfg
+        self.F = N_FLIES
+        self.p = float(cfg.reward.p)  # TODO(미결 4): p, q 값은 자리표시
+        self.q = float(cfg.reward.q)
 
     @abstractmethod
     def rewards(self, events: list[Event]) -> np.ndarray:
@@ -31,5 +36,5 @@ class Regime(ABC):
 
     @abstractmethod
     def emission(self, obs_one_game) -> np.ndarray:
-        """페로몬 방출 세기 (F,). 체제 1 · 2는 0."""
+        """페로몬 방출 세기 (F,). 체제 1 · 2는 0. obs_one_game: 한 게임의 FlyObs 조각 (F,4) 모양."""
         raise NotImplementedError

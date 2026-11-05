@@ -15,6 +15,8 @@ from flypac.maps.original import MapSpec
 class Game:
     """한 판 (TRD 5.2)."""
 
+    index = 0  # 묶음 안의 게임 칸 번호. 사건의 `game` 값. VecGame이 정해 준다.
+
     def __init__(self, map: MapSpec, cfg, rng: np.random.Generator):
         raise NotImplementedError
 
@@ -62,6 +64,8 @@ class VecGame:
             raise ValueError(f"rngs 길이 {len(rngs)}가 B={B}와 다르다")
         self.B = B
         self.games = [self.game_cls(map, cfg, rng) for rng in rngs]
+        for i, g in enumerate(self.games):
+            g.index = i
 
     def step_pacman(self, actions: np.ndarray) -> list[list[Event]]:
         """actions (B,) 절대 방향."""

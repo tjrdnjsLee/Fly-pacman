@@ -1,0 +1,19 @@
+# M0 연기 시험: 게임 2개(B=2), 판 2개, 규칙 기반 팩맨, 무작위 초파리, 체제1.
+# 모든 값은 자리표시다 (TRD 13.1, 17절 미결). 이 파일은 관리자 소유다.
+experiment: m0_smoke
+condition: regime1        # regime1 | regime2 | regime3 | b0 | b0p | b1
+seeds: [0, 1]
+n_games: 2
+
+engine: {kind: fake, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,
+         watchdog_ticks: 20000}            # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
+time:   {v_max_tiles_per_s: 9.47}
+odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
+phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
+reward: {p: 0.25, q: 1.0}                  # TODO(미결 4)
+pacman: {kind: rule_based}
+rule_based: {danger_dist: 6, chase_dist: 8}   # TODO(미결 6)
+ghosts: {kind: random}
+replay: {keep_games: [1]}                  # TODO(미결 17): 남길 판 고르기는 고정 번호만
+run:    {max_loop_ticks: 200000}
