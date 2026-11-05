@@ -1,0 +1,14 @@
+# 비공개 문서 (공개 저장소에 올리지 않는다)
+docs/PRD.md
+docs/TRD.md
+docs/*.pdf
+M0_TASK.md
+
+# 실행 결과 · 비밀값 · 캐시
+runs/
+.env
+checkpoints/
+__pycache__/
+.venv/
+*.pyc
+.pytest_cache/

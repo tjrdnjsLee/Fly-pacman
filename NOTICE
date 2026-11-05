@@ -1,0 +1,15 @@
+fly-pacman
+Copyright (c) 2026 Fly Connectome Team, Pusan National University
+
+This project includes or builds on the following third-party material.
+
+1. pacman-ai (https://github.com/vikranthreddimasu/pacman-ai)
+   Licensed under the MIT License.
+   Copyright notice: TODO(미결): copy the exact copyright line from the
+   upstream LICENSE file into third_party/pacman_ai/LICENSE and here.
+
+2. hemibrain connectome data (Janelia FlyEM)
+   Licensed under CC-BY 4.0. Attribution: "Scheffer et al. 2020, A connectome
+   and analysis of the adult Drosophila central brain, eLife."
+   TODO(미결 13): confirm the exact attribution wording required by the
+   dataset version used (TRD 3.3) before the poster.
