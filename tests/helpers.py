@@ -84,6 +84,7 @@ class SpyGhost(RandomGhost):
     def __init__(self, cfg, B, rng):
         super().__init__(cfg, B, rng)
         self.log = []
+        self.probe = None  # flush 시점에 부를 함수 (예: 게임의 learning_active 읽기)
 
     def propose(self, obs, alive, views=None):
         self.log.append(("propose", alive.copy(), views))
@@ -98,8 +99,12 @@ class SpyGhost(RandomGhost):
         super().on_release(mask)
 
     def flush_learning(self, mask):
-        self.log.append(("flush", mask.copy()))
+        self.log.append(("flush", mask.copy(), self.probe() if self.probe else None))
         super().flush_learning(mask)
+
+    def reset_life(self, mask):
+        self.log.append(("reset_life", mask.copy()))
+        super().reset_life(mask)
 
 
 class SpyRecorder:
@@ -116,10 +121,29 @@ class SpyRecorder:
         self.calls.append(("game_end", game, view, list(events)))
 
     def replay_frame(self, game, views, obs, odor, phero, brain):
-        self.calls.append(("frame", game))
+        self.calls.append(("frame", game, odor, phero))
 
     def replay_end(self, game, keep):
         self.calls.append(("replay_end", game, keep))
 
     def of(self, name):
         return [c for c in self.calls if c[0] == name]
+
+
+def share_journal(runner, recorder):
+    """조종기와 기록기가 같은 호출 기록을 쓰게 한다. 호출 순서를 한 목록에서 본다.
+
+    게임 초기화 호출도 같은 기록에 남긴다 (마스크가 하나라도 참일 때만).
+    """
+    journal = runner.ghosts.log
+    recorder.calls = journal
+    for name in ("retire", "reset_life", "reset_game"):
+        original = getattr(runner.game, name)
+
+        def wrapped(mask, _name=name, _original=original):
+            if np.any(mask):
+                journal.append((f"game_{_name}", np.array(mask).copy()))
+            return _original(mask)
+
+        setattr(runner.game, name, wrapped)
+    return journal

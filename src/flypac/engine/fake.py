@@ -3,9 +3,10 @@
 단순화한 곳 (진짜 엔진에서 채운다):
 - TODO(M1): 파워 쿠키 효과(겁먹음, z, 먹힘, 부활), 과일, 엘로이, 터널 감속은 생략. 파워 쿠키는 점수와
   ENERGIZER 사건만 만든다. 따라서 z는 항상 0이고 EATEN, Z_CHANGE, POWER_*는 생기지 않는다.
-- 유령 집: 목숨이 시작되고 `release_ticks[k]` 틱 뒤에 k번 초파리가 출구를 통과한다 (순서대로).
-  네 번째 통과 순간 ALL_RELEASED가 생기고 학습 활성이 켜진다. 0번 초파리는 집 밖에서 시작하고,
-  자기 차례에 "통과한 것으로" 표시만 한다.
+- 유령 집: 목숨이 시작되고 `release_ticks[k]` 틱 뒤에 k번 초파리가 출구를 통과한다. 엔진은
+  `release_ticks`의 순서를 검사하지 않는다. 그래서 마지막으로 나오는 초파리가 3번이라는 보장은 없고,
+  ALL_RELEASED의 초파리 번호는 마지막으로 나온 초파리의 번호다. 마지막 통과 순간 ALL_RELEASED가 생기고
+  학습 활성이 켜진다. 0번 초파리는 집 밖에서 시작하고, 자기 차례에 "통과한 것으로" 표시만 한다.
 - 모든 속도는 설정값(기본 1.0). 속도 누적기 구조는 그대로 둔다 (TRD 7.2).
 엔진은 스스로 초기화하지 않는다 (reset_life, reset_game은 실행기만 부른다).
 """
@@ -51,6 +52,10 @@ class FakeGame(Game):
         self.score = 0
         self.tick = 0
         self.reset_life()
+
+    def retire(self) -> None:
+        """모든 판을 끝낸 칸을 은퇴시킨다. 새 판은 시작하지 않고 학습 활성만 내린다. 동결은 그대로."""
+        self.learning_active = False
 
     def reset_life(self) -> None:
         m = self.map
@@ -197,10 +202,11 @@ class FakeGame(Game):
         if self.frozen:
             return events
         self.life_tick += 1
-        self.tick += 1
-        if self.tick >= self.watchdog:  # 감시 장치 (TRD 7.3, 6.2)
+        if self.tick + 1 >= self.watchdog:  # 감시 장치 (TRD 7.3, 6.2)
+            # 사건은 틱 번호를 올리기 전에 만든다: 같은 틱의 다른 사건과 같은 번호를 갖는다
             events.append(self._ev(Kind.GAME_OVER, cause=Winner.CENSORED))
             self.frozen = True
+        self.tick += 1
         return events
 
     def view(self) -> GameView:

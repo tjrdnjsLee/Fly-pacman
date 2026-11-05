@@ -47,8 +47,10 @@ TRD 5절이 모양을 정하지 않은 곳을 M0 인터페이스 자리 단계�
 | `views()` | | `list[GameView]` (길이 B) |
 | `decision_info()` | | `(legal (B,F,4) bool, decide (B,F) bool)` |
 | `reset_life(mask)`, `reset_game(mask)` | `(B,)` bool | 없음. mask가 참인 게임만 |
+| `retire(mask)` | `(B,)` bool | 없음. mask가 참인 게임의 `learning_active`만 거짓으로 내린다. 새 판은 시작하지 않고 동결은 유지한다. **TRD 5.2에 없는 메서드다. 총책임자 결정 — TRD v0.6에 반영할 것** |
 
 - 자동 초기화 없음. 초기화는 실행기만 부른다.
+- `retire`는 모든 판을 끝낸 칸을 은퇴시킬 때 실행기가 부른다 (7절). 새 판이 시작되지 않는 칸은 `reset_game`을 거치지 않으므로, 학습 활성이 종료 처리 뒤에도 켜진 채 남지 않게 하려는 것이다.
 - `Game`의 같은 이름 메서드는 한 판 모양이다 (`step_flies`는 `(F,)` 입력, `decision_info`는 `(F,4)`, `(F,)` 반환, `view()`).
 
 ## 4. 유령 조종기 (brain/base.py)
@@ -64,6 +66,8 @@ TRD 5절이 모양을 정하지 않은 곳을 M0 인터페이스 자리 단계�
 | `on_eaten(mask)` | `(B,F)` bool |
 | `flush_learning(mask)` | `(B,)` bool |
 | `reset_life(mask)` | `(B,)` bool |
+
+- **6.1의 8번 호출 순서는 `on_release` → `commit` → `on_eaten`이다.** TRD 6.1의 8번은 `commit` 다음에 `on_release`를 적었다. 그 순서면 같은 틱에서 `ALL_RELEASED` 뒤에 실행된 활성 결정의 흔적이 `on_release`(e = 0)로 지워져 TRD 4.5의 의도와 모순된다. `commit`은 결정별 `active`로 학습을 거르므로 순서를 바꿔도 비활성 결정은 흔적에 들어가지 않는다. **총책임자 결정 — TRD v0.6에 반영할 것.**
 
 ## 5. 기록기 (recording/recorder.py)
 
@@ -96,11 +100,13 @@ TRD 5.8이 `...`로 비워 둔 인자:
 ## 7. 실행기와 가짜 엔진 (M0 4단계)
 
 - `Game.index`: 묶음 안의 칸 번호. `VecGame`이 생성 직후 정해 주고, 사건의 `game` 값으로 쓴다.
-- `GhostController.uses_views`: 참인 조종기(B1)에만 실행기가 `views`를 넘긴다. 기본값은 거짓 (TRD 원칙 2).
+- `GhostController.uses_views`: 조종기가 `views`를 쓰는지 알리는 표시다. 기본값은 거짓. **`views`를 넘기는 기준은 조건이다: 실행기는 `condition == "b1"`일 때만 넘긴다** (TRD 5.5, 원칙 2). 실행 시작 때 `uses_views != (condition == "b1")`이면 `ValueError`를 낸다. 그래서 `uses_views`만으로 초파리 조건에서 `views`를 받을 수 없다.
 - `ALL_RELEASED` 사건 자체의 `active`는 거짓이다 (학습 활성이 켜지기 직전에 만들어진다). 그 뒤 같은 틱에 생긴 사건은 참.
-- 판 번호는 1부터. 칸마다 `n_games`판을 하고, 마지막 판이 끝난 칸은 초기화하지 않고 동결 상태로 둔다.
-- 실행기의 `replay_frame`에는 4번(팩맨 이동 뒤)에 만든 `views`와 5번의 `obs`를 넘긴다 (둘이 같은 순간의 상태다). 종료 상태는 13번에서 `view`를 다시 읽어 `on_life_end`, `on_game_end`에 넘긴다.
-- 조건 `b0`, `b0p`, `b1`의 보상 체제는 쓰이지 않는다. 지금은 `Regime1`을 대신 둔다 (TODO).
+- 판 번호는 1부터. 칸마다 `n_games`판을 한다. 모든 판을 끝낸 칸은 은퇴시킨다: 새 판은 시작하지 않고 `retire`로 `learning_active`만 거짓으로 내리며 동결은 유지한다. **총책임자 결정 — TRD v0.6에 반영할 것** (TRD 6.2의 4번 초기화와 달리 은퇴하는 칸은 판 초기화를 하지 않는다).
+- 실행기의 `replay_frame`에는 4번(팩맨 이동 뒤)에 만든 `views`와 5번의 `obs`, 그리고 **5번(관측을 만든 순간)의 냄새 장 · 페로몬 장 복사본**을 넘긴다. 한 프레임의 `views`, `obs`, 냄새 장이 모두 같은 순간이다. 10번의 장 갱신은 이 프레임에 들어가지 않는다. **총책임자 결정 — TRD v0.6에 반영할 것.** 종료 상태는 13번에서 `view`를 다시 읽어 `on_life_end`, `on_game_end`에 넘긴다.
+- 조건 `b0`, `b0p`, `b1`은 `NullRegime`(`regimes/null.py`)을 쓴다: 보상 0, 페로몬 방출 0. 이유: 기준선은 학습하지 않으므로 보상이 없다. 설정에 `reward.p`, `reward.q`가 없어도 만들어진다. 알 수 없는 조건 이름은 `ValueError`다 (이전에는 조용히 `Regime1`이 되었다).
+- 사건의 틱 번호는 사건이 생긴 실행기 틱의 번호다. 감시 장치 `GAME_OVER`(중단)도 같은 틱의 다른 사건과 같은 번호를 갖는다 (타이머 단계가 틱 번호를 올리기 전에 만든다).
+- 가짜 엔진의 `release_ticks`는 순서를 검사하지 않는다. 마지막으로 나오는 초파리가 3번이라는 보장이 없고, `ALL_RELEASED`의 초파리 번호는 마지막으로 나온 초파리의 번호다.
 - 가짜 엔진(`engine/fake.py`)은 파워 쿠키 효과, 과일, 엘로이, 터널 감속을 생략한다. 따라서 `z`는 항상 0이고 `EATEN`, `Z_CHANGE`, `POWER_*`는 생기지 않는다 (M1에서 채운다). 불가능한 행동을 받으면 `ValueError`. 행동 -1은 유일한 경로, 갈림길이면 직진을 우선한다.
 
 ## 8. 기록과 재생 로그 (M0 5단계)

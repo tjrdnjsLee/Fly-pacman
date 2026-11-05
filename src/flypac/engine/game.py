@@ -43,6 +43,13 @@ class Game:
         """(legal (F,4) bool, decide (F,) bool)."""
         raise NotImplementedError
 
+    def retire(self) -> None:
+        """모든 판을 끝낸 칸을 은퇴시킨다. 새 판은 시작하지 않고 `learning_active`만 거짓으로 내린다. 동결은 유지.
+
+        TRD 5.2에 없는 메서드다 (총책임자 결정, DECISIONS 3절). 실행기만 부른다.
+        """
+        raise NotImplementedError
+
     def reset_life(self) -> None:
         raise NotImplementedError
 
@@ -102,3 +109,9 @@ class VecGame:
         for g, m in zip(self.games, mask):
             if m:
                 g.reset_game()
+
+    def retire(self, mask: np.ndarray) -> None:
+        """mask (B,) bool: 은퇴시킬 게임 (모든 판을 끝낸 칸)."""
+        for g, m in zip(self.games, mask):
+            if m:
+                g.retire()

@@ -180,3 +180,69 @@ def test_event_game_index_from_vecgame():
     ev = v.step_pacman(np.array([d.EAST, d.EAST]))
     assert ev[0] == [] or all(e.game == 0 for e in ev[0])
     assert all(e.game == 1 for e in ev[1]) and ev[1]
+
+
+def test_watchdog_event_has_the_tick_number_of_the_other_events_of_that_tick():
+    g = new_game(engine={"watchdog_ticks": 1})
+    place(g, pac=cell(5, 3))
+    g.dots[:] = False
+    g.dots[cell(5, 4)] = True
+    g.dots[cell(5, 20)] = True
+    ev = g.step_pacman(d.EAST) + g.step_flies(np.full(4, -1))[0] + g.tick_timers()
+    assert kinds(ev) == [Kind.DOT, Kind.GAME_OVER]
+    assert {e.tick for e in ev} == {0}  # 감시 장치 사건도 0틱 (1틱이 아니다)
+    assert g.frozen
+
+
+def test_watchdog_tick_number_is_the_zero_based_tick():
+    g = new_game(engine={"watchdog_ticks": 3})
+    out = []
+    for _ in range(3):
+        out += g.tick_timers()
+    assert out[0].tick == 2  # 세 번째 틱의 번호
+
+
+def test_events_after_all_released_in_the_same_tick_are_active():
+    # 0번이 마지막에 나온다: 1~3번은 앞 틱에 나왔고, 이번 틱에 0번이 나온 뒤 1~3번이 움직인다
+    g = new_game(engine={"pacman_speed": 0.0, "release_ticks": [1, 0, 0, 0]})
+    ev, executed, active = g.step_flies(np.full(4, -1))
+    assert ev == [] and not g.learning_active
+    g.tick_timers()
+    ev, executed, active = g.step_flies(np.full(4, -1))
+    assert [(e.kind, e.fly, e.active) for e in ev] == [(Kind.ALL_RELEASED, 0, False)]
+    assert g.learning_active
+    assert executed.tolist() == [True, True, True, True]
+    assert active.tolist() == [False, True, True, True]  # 0번의 출구 통과는 활성 이전, 1~3번 이동은 이후
+
+
+def test_catch_right_after_the_last_fly_leaves_the_house_is_active():
+    g = new_game(engine={"pacman_speed": 0.0, "release_ticks": [0, 0, 0, 0]})
+    exit_cell = int(MAP.fly_starts[0])
+    place(g, pac=exit_cell, released=[True, True, True, False],
+          flies={0: cell(5, 1), 1: cell(5, 20), 2: cell(5, 22)},
+          fly_dirs={0: d.EAST, 1: d.WEST, 2: d.WEST})
+    ev, executed, active = g.step_flies(np.full(4, -1))
+    assert [e.kind for e in ev] == [Kind.ALL_RELEASED, Kind.CATCH, Kind.LIFE_LOST]
+    assert [e.active for e in ev] == [False, True, True]  # 사건을 만든 순간의 값
+    assert ev[1].fly == 3 and g.frozen
+
+
+def test_watchdog_event_in_the_tick_all_released_is_active():
+    g = new_game(engine={"pacman_speed": 0.0, "release_ticks": [0, 0, 0, 0], "watchdog_ticks": 1})
+    ev, _, _ = g.step_flies(np.full(4, -1))
+    ev += g.tick_timers()
+    assert [(e.kind, e.tick, e.active) for e in ev] == [
+        (Kind.ALL_RELEASED, 0, False), (Kind.GAME_OVER, 0, True)]
+    assert ev[1].winner is Winner.CENSORED
+
+
+def test_retire_lowers_learning_active_and_keeps_the_game_frozen():
+    g = new_game()
+    place(g, pac=cell(11, 12), released=True, active=True, flies={0: cell(11, 13)})
+    g.lives = 1
+    g.step_pacman(d.EAST)
+    assert g.frozen and g.learning_active
+    g.retire()
+    view = g.view()
+    assert view.learning_active is False and view.frozen and view.lives == 0
+    assert g.step_pacman(d.EAST) == [] and g.tick_timers() == []  # 은퇴해도 동결 그대로

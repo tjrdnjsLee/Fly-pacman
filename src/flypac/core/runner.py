@@ -43,6 +43,8 @@ class Runner:
     def __init__(self, cfg, map, game: VecGame, odor: Field, phero: Field | None, pacman, ghosts, regime,
                  recorder):
         self.cfg, self.map = cfg, map
+        self.condition = str(cfg.condition)
+        self.pass_views = self.condition == "b1"  # 원칙 2: views는 B1 조건에서만 조종기에 넘긴다
         self.game, self.odor, self.phero = game, odor, phero
         self.pacman, self.ghosts, self.regime, self.recorder = pacman, ghosts, regime, recorder
         self.B = game.B
@@ -59,7 +61,15 @@ class Runner:
         self.results: list[dict] = []  # 끝난 판마다 {slot, game_no, winner}
 
     # ---- 초기화 ----
+    def _check_views_rule(self) -> None:
+        """실행 시작 때 한 번: 조종기가 views를 쓰는지가 조건과 맞아야 한다 (TRD 5.5, 원칙 2)."""
+        if bool(self.ghosts.uses_views) != self.pass_views:
+            raise ValueError(
+                f"조건 {self.condition!r}에서 조종기 {type(self.ghosts).__name__}의 uses_views="
+                f"{self.ghosts.uses_views}: views를 쓰는 조종기는 조건 'b1'에서만 허용한다")
+
     def _reset_all(self) -> None:
+        self._check_views_rule()
         every = np.ones(self.B, dtype=bool)
         self.odor.reset(every)
         if self.phero is not None:
@@ -79,11 +89,11 @@ class Runner:
         views = game.views()                                              # 4 (다시 만든다)
         phero_c = self.phero.c if self.phero is not None else np.zeros_like(self.odor.c)
         obs = sense(self.odor.c, phero_c, views, game.decision_info(), self.c0, nbr=self.map.nbr)  # 5
+        # 한 프레임의 views, obs, 냄새 장이 같은 순간이 되게 5번의 값을 복사해 둔다 (10번에서 장이 바뀐다)
+        frame_odor, frame_phero = self.odor.c.copy(), phero_c.copy()
         alive = np.array([not v.frozen for v in views]) & running
-        # 원칙 2: views는 이를 쓰는 조종기(B1)에만 넘긴다
-        fly_act = self.ghosts.propose(obs, alive, views if self.ghosts.uses_views else None)       # 6
+        fly_act = self.ghosts.propose(obs, alive, views if self.pass_views else None)             # 6
         ev2, executed, active = game.step_flies(fly_act)                  # 7
-        self.ghosts.commit(executed, active)                              # 8
         released = np.zeros(B, dtype=bool)
         eaten = np.zeros((B, F), dtype=bool)
         for b in range(B):
@@ -92,8 +102,12 @@ class Runner:
                     released[b] = True
                 elif e.kind is Kind.EATEN:
                     eaten[b, e.fly] = True
+        # 8: on_release → commit → on_eaten (총책임자 결정, DECISIONS 4절). TRD의 commit → on_release 순서면
+        # 같은 틱 ALL_RELEASED 뒤의 첫 활성 결정 흔적이 on_release(e=0)로 지워진다. commit은 결정별 active로
+        # 거르므로 순서를 바꿔도 비활성 결정은 흔적에 들어가지 않는다.
         if released.any():
             self.ghosts.on_release(released)  # 학습 활성은 게임 단위
+        self.ghosts.commit(executed, active)
         if eaten.any():
             self.ghosts.on_eaten(eaten)
         timers = game.tick_timers()                                       # 9
@@ -125,7 +139,7 @@ class Runner:
         for b in range(B):                                                # 12
             if running[b]:
                 self.recorder.on_events(b, events[b], views[b])
-                self.recorder.replay_frame(b, views, obs, self.odor.c, phero_c, brain)
+                self.recorder.replay_frame(b, views, obs, frame_odor, frame_phero, brain)
 
         self._end_of_tick(events, running)                                # 13
         self.total_ticks += 1
@@ -150,7 +164,7 @@ class Runner:
                 self.recorder.on_game_end(int(b), final[b], events[b])
                 self.recorder.replay_end(int(b), int(self.game_no[b]) in self.keep_games)
                 self.results.append({"slot": int(b), "game_no": int(self.game_no[b]), "winner": str(winner)})
-        # 4. 초기화: 조종기와 팩맨 이력, 냄새 장, 게임. 학습 활성은 게임 초기화에서 해제된다
+        # 4. 초기화: 조종기와 팩맨 이력, 냄새 장, 게임. 학습 활성은 게임 초기화(또는 은퇴)에서 해제된다
         self.pacman.reset(ends)
         self.ghosts.reset_life(ends)
         field_reset = over | (ends & self.reset_odor_on_life_loss)
@@ -159,8 +173,10 @@ class Runner:
             if self.phero is not None:
                 self.phero.reset(field_reset)
         more = over & (self.game_no < self.n_games)
-        self.finished |= over & ~more  # 마지막 판이 끝난 칸은 동결 상태로 둔다
+        retired = over & ~more  # 모든 판을 끝낸 칸: 새 판은 시작하지 않고 학습 활성만 내린다
+        self.finished |= retired
         self.game_no[more] += 1
+        self.game.retire(retired)
         self.game.reset_game(more)
         self.game.reset_life(ends & ~over)
 

@@ -1,8 +1,11 @@
 import numpy as np
 import pytest
-from helpers import make_cfg
+from helpers import BASE, make_cfg
 
+from flypac.core.config import Config
 from flypac.core.events import Event, Kind
+from flypac.regimes import make_regime
+from flypac.regimes.null import NullRegime
 from flypac.regimes.regime1 import Regime1
 from flypac.regimes.regime2 import Regime2
 from flypac.regimes.regime3 import Regime3
@@ -48,3 +51,30 @@ def test_non_reward_events_do_nothing():
     evs = [Event(Kind.DOT, 0, 1, -1, True), Event(Kind.LIFE_LOST, 0, 1, -1, True)]
     for cls in (Regime1, Regime2, Regime3):
         assert not cls(CFG).rewards(evs).any()
+
+
+def test_null_regime_has_no_reward_and_no_emission():
+    r = NullRegime(CFG)
+    assert not r.rewards([catch(0), eaten(1), catch(2, active=False)]).any()
+    assert r.rewards([]).shape == (4,) and r.emission(None).shape == (4,) and not r.emission(None).any()
+
+
+def test_null_regime_needs_no_reward_settings():
+    data = {k: v for k, v in BASE.items() if k != "reward"}
+    data["condition"] = "b0"
+    assert isinstance(make_regime(Config(data)), NullRegime)
+
+
+@pytest.mark.parametrize("condition", ["b0", "b0p", "b1"])
+def test_baselines_use_null_regime(condition):
+    assert isinstance(make_regime(make_cfg(condition=condition)), NullRegime)
+
+
+@pytest.mark.parametrize("condition,cls", [("regime1", Regime1), ("regime2", Regime2), ("regime3", Regime3)])
+def test_regime_conditions_map_to_their_regime(condition, cls):
+    assert type(make_regime(make_cfg(condition=condition))) is cls
+
+
+def test_unknown_condition_is_an_error():
+    with pytest.raises(ValueError):
+        make_regime(make_cfg(condition="regime9"))
