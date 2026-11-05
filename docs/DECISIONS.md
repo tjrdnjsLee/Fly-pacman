@@ -2,6 +2,10 @@
 
 TRD 5절이 모양을 정하지 않은 곳을 M0 인터페이스 자리 단계에서 정한 기록이다. **TRD 다음으로 이 문서를 따른다.** TRD와 충돌하면 TRD가 우선이다. 바꾸려면 관리자에게 제안한다.
 
+## 0. 공통 규칙
+
+- **모든 mask는 참 = 이 게임(초파리)에 적용.** `reset`, `step`, `on_release`, `on_eaten`, `flush_learning`, `alive` 등 어떤 mask든 참인 칸만 처리하고 거짓인 칸은 건드리지 않는다. 모양 `(B,)`는 게임, `(B,F)`는 초파리 단위다.
+
 ## 1. 사건 (core/events.py)
 
 - 초파리 번호 `fly`: `CATCH`, `EATEN`, `Z_CHANGE`, `ALL_RELEASED`는 `fly >= 0`. 그 밖의 종류는 `fly == -1`. 어기면 생성 시 `ValueError`.
@@ -64,7 +68,7 @@ TRD 5.8이 `...`로 비워 둔 인자:
 ## 6. 재생 로그 (replay/schema.py)
 
 - 사건은 세 배열로 저장한다: `ev_tick` `(E,)` int32, `ev_kind` `(E,)` int8, `ev_fly` `(E,)` int8 (초파리 없음 = -1). 사건의 `cause`는 저장하지 않는다 (TRD 19.4는 틱 · 종류 · 초파리만 정함).
-- `ev_kind` 정수 코드표 (`schema.KIND_CODES`). 한 번 정하면 바꾸지 않고 새 종류는 뒤에 붙인다.
+- `ev_kind` 정수 코드표 (`schema.KIND_CODES`). **번호를 바꾸거나 지우지 않고, 새 종류는 끝에만 추가한다.**
 
 | 코드 | 종류 | 코드 | 종류 |
 |---|---|---|---|
