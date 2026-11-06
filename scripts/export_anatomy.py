@@ -75,6 +75,51 @@ def fetch_kc_mbon_synapses(client, kc_ids, mbon_ids) -> dict[str, pd.DataFrame]:
     return {"syn": df[cols].copy()}
 
 
+def pair_synapses(cache: "ec.Cache", name: str, describe: str, fetch_fn, pre_ids, post_ids,
+                  lazy_client) -> pd.DataFrame:
+    """뉴런 쌍 시냅스 표를 캐시에서 읽어 지금 회로(pre_ids × post_ids)로 거른다.
+
+    캐시는 조회한 bodyId 목록(ids_pre, ids_post)을 함께 둔다. 지금 회로에 캐시가 덮지 못한 뉴런이
+    있으면 그 뉴런의 쌍만 서버에서 더 받아 붙인다 (토큰 필요). 목록이 없는 캐시는 처음부터 다시 받는다.
+    """
+    d = ec.CACHE_DIR
+    f_syn, f_pre, f_post = (d / f"{name}__syn.parquet", d / f"{name}__ids_pre.parquet",
+                            d / f"{name}__ids_post.parquet")
+    pre_ids = np.asarray(pre_ids, dtype=np.int64)
+    post_ids = np.asarray(post_ids, dtype=np.int64)
+    if cache.refresh or not (f_syn.exists() and f_pre.exists() and f_post.exists()):
+        syn = pd.DataFrame()
+        have_pre = have_post = np.array([], dtype=np.int64)
+    else:
+        syn = pd.read_parquet(f_syn)
+        have_pre = pd.read_parquet(f_pre)["bodyId"].to_numpy()
+        have_post = pd.read_parquet(f_post)["bodyId"].to_numpy()
+    miss_pre = np.setdiff1d(pre_ids, have_pre)
+    miss_post = np.setdiff1d(post_ids, have_post)
+    parts = [syn]
+    if len(miss_pre) and len(post_ids):
+        print(f"[조회] {name}: 새 pre {len(miss_pre)}개", flush=True)
+        parts.append(fetch_fn(lazy_client(), miss_pre, post_ids)["syn"])
+    if len(miss_post) and len(pre_ids):
+        print(f"[조회] {name}: 새 post {len(miss_post)}개", flush=True)
+        keep_pre = np.setdiff1d(pre_ids, miss_pre)          # miss_pre 쪽은 위에서 이미 받음
+        if len(keep_pre):
+            parts.append(fetch_fn(lazy_client(), keep_pre, miss_post)["syn"])
+    if len(parts) > 1:
+        syn = pd.concat([x for x in parts if len(x)], ignore_index=True).drop_duplicates()
+        syn.to_parquet(f_syn, index=False)
+        pd.DataFrame({"bodyId": np.union1d(have_pre, pre_ids)}).to_parquet(f_pre, index=False)
+        pd.DataFrame({"bodyId": np.union1d(have_post, post_ids)}).to_parquet(f_post, index=False)
+        cache.meta[name] = {"query": describe, "dataset": ec.DATASET, "server": ec.SERVER,
+                            "fetched_at": datetime.now(timezone.utc).isoformat(),
+                            "neuprint_python_version": ec.neuprint_version(),
+                            "tables": {"syn": int(len(syn))}, "incremental": True}
+        cache.meta_path.write_text(json.dumps(cache.meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    else:
+        print(f"[캐시] {name}")
+    return syn[syn["bodyId_pre"].isin(pre_ids) & syn["bodyId_post"].isin(post_ids)]
+
+
 def fetch_dan_synapses(client, dan_ids) -> dict[str, pd.DataFrame]:
     from neuprint import NeuronCriteria as NC, SynapseCriteria as SC, fetch_synapses
 
@@ -304,10 +349,10 @@ def run(cfg_path: Path, refresh: bool) -> Path:
     scale = float(acfg["voxel_nm"]) / 1000.0
     proj = Projection(acfg, scale)
 
-    pk = cache.get("anat_pn_kc", "fetch_synapse_connections(원본 PN -> 원본 KC, CA(R))",
-                   lazy(fetch_pn_kc_synapses, raw["pn_body"], raw["kc_body"]))["syn"]
-    km = cache.get("anat_kc_mbon", "fetch_synapse_connections(원본 KC -> 원본 MBON, PED + 15구획)",
-                   lazy(fetch_kc_mbon_synapses, raw["kc_body"], raw["mbon_body"]))["syn"]
+    pk = pair_synapses(cache, "anat_pn_kc", "fetch_synapse_connections(원본 PN -> 원본 KC, CA(R))",
+                       fetch_pn_kc_synapses, raw["pn_body"], raw["kc_body"], lazy_client)
+    km = pair_synapses(cache, "anat_kc_mbon", "fetch_synapse_connections(원본 KC -> 원본 MBON, PED + 15구획)",
+                       fetch_kc_mbon_synapses, raw["kc_body"], raw["mbon_body"], lazy_client)
     ds = cache.get("anat_dan", "fetch_synapses(PAM · PPL1, 시냅스 전, 15구획)",
                    lazy(fetch_dan_synapses, dan["bodyId"].to_numpy()))["syn"]
 

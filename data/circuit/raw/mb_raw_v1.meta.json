@@ -2,12 +2,16 @@
   "format": "mb_raw_v1",
   "dataset": "hemibrain:v1.2.1",
   "server": "neuprint.janelia.org",
-  "extracted_at": "2026-11-06T11:32:37+00:00",
+  "extracted_at": "2026-11-06T11:57:53+00:00",
   "fetched_at": {
     "rois": "2026-11-06T11:21:04.857211+00:00",
     "neurons": "2026-11-06T11:21:11.665909+00:00",
     "kc_inputs": "2026-11-06T11:21:25.419343+00:00",
-    "kc_to_mbon": "2026-11-06T11:21:31.699955+00:00"
+    "kc_to_mbon": "2026-11-06T11:21:31.699955+00:00",
+    "voxel_meta": "2026-11-06T11:35:15.890034+00:00",
+    "anat_pn_kc": "2026-11-06T11:42:44.706260+00:00",
+    "anat_kc_mbon": "2026-11-06T11:44:24.883294+00:00",
+    "anat_dan": "2026-11-06T11:44:48.190244+00:00"
   },
   "neuprint_python_version": "0.6.4",
   "rois": {
@@ -101,8 +105,17 @@
       "apbp",
       "ab"
     ],
-    "basis": "모든 후보 KC에서 받는 시냅스 (꽃자루 + 15구획), 문턱 적용 전"
+    "basis": "선택 KC에서 받는 시냅스 = W0의 열 합을 KC 종류별로 나눈 비율"
   },
+  "mbon_class_profile_candidates": {
+    "columns": [
+      "gamma",
+      "apbp",
+      "ab"
+    ],
+    "basis": "모든 후보 KC에서 받는 시냅스 (꽃자루 + 15구획, s_min 정리 뒤)"
+  },
+  "selection_order": "s_min 연결 정리를 맨 먼저 하고, θ_PN · θ_KC · KC 최소 입력 · θ_MBON은 정리된 시냅스 수로 계산",
   "kc_class_labels": {
     "gamma": "γ (KCg-*)",
     "apbp": "α′β′ (KCa'b'-*)",
@@ -113,35 +126,39 @@
       "pn": 145,
       "kc": 1927,
       "mbon": 71,
-      "pn_excluded_by_annotation": 316
+      "pn_excluded_by_annotation": 316,
+      "glomeruli": 51,
+      "glomeruli_with_kc_connection_after_s_min": 51
     },
     "selected": {
       "pn": 106,
-      "kc": 1579,
-      "mbon": 50,
+      "kc": 1575,
+      "mbon": 47,
       "glomeruli": 51
     },
     "kc_fail": {
-      "no_pn_family_input": 142,
-      "ratio_below_theta_kc": 179,
-      "selected_input_below_min": 27
+      "no_pn_family_input": 170,
+      "ratio_below_theta_kc": 162,
+      "selected_input_below_min": 20
     },
     "unannotated_input_main_calyx": {
       "to_all_candidate_kc": 2378,
-      "to_selected_kc": 2003,
-      "pn_family_to_selected_kc": 167005
+      "to_selected_kc": 2002,
+      "pn_family_to_selected_kc": 166973,
+      "note": "정리(s_min) 전 시냅스 수"
     },
     "s_min_effect": {
-      "pn_kc_connections_before": 10363,
-      "pn_kc_connections_after": 9053,
-      "pn_kc_synapses_before": 161458,
-      "pn_kc_synapses_after": 159945,
-      "kc_mbon_connections_before": 24640,
-      "kc_mbon_connections_after": 19495,
-      "kc_mbon_synapses_before": 250539,
-      "kc_mbon_synapses_after": 243333
+      "scope": "후보 전체 (PN 계열 → 후보 KC는 본 칼릭스, 후보 KC → 후보 MBON은 꽃자루 + 15구획)",
+      "pn_family_kc_connections_before": 12012,
+      "pn_family_kc_connections_after": 10312,
+      "pn_family_kc_synapses_before": 180676,
+      "pn_family_kc_synapses_after": 178701,
+      "kc_mbon_connections_before": 30088,
+      "kc_mbon_connections_after": 23702,
+      "kc_mbon_synapses_before": 308159,
+      "kc_mbon_synapses_after": 299260
     },
-    "after_s_min": {
+    "isolated_in_circuit": {
       "pn_without_kc": 0,
       "kc_without_pn": 0,
       "kc_without_mbon": 0,
@@ -152,9 +169,9 @@
     "KCa'b'-ap1": 41,
     "KCa'b'-ap2": 107,
     "KCa'b'-m": 119,
-    "KCab-c": 203,
+    "KCab-c": 198,
     "KCab-m": 347,
-    "KCab-s": 213,
+    "KCab-s": 214,
     "KCg-d": 5,
     "KCg-m": 543,
     "KCg-t": 1
@@ -169,7 +186,7 @@
     "rois.csv": "2382e8dcdede033e8ae4142162ad00cd072621f43cdffe6ed06e8d1a4f7f4742"
   },
   "snapshot_dir": "runs/extract/snapshot (저장소에 올리지 않음)",
-  "raw_sha256": "df9671810563ee510ed35ebc77272a5e82e3da9baeb783fee77aeb77f083b040",
+  "raw_sha256": "cd6d2976791279a444cef89647a9e7daaf55d11efba79794d0ce155dda79168b",
   "attribution": "hemibrain v1.2.1, Janelia FlyEM. Scheffer et al. 2020, eLife 9:e57443, \"A connectome and analysis of the adult Drosophila central brain\". CC BY 4.0 (관리자 확인 후 확정).",
   "config": "configs/circuit_extract_v1.yaml",
   "config_hash": "1ac6d4279450923c"

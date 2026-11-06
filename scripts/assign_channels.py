@@ -29,6 +29,18 @@ def q(x, qs=(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1)):
     return " / ".join(f"{np.quantile(x, v):.0f}" for v in qs)
 
 
+def glom_line(cfg) -> str:
+    """원본 meta에서 θ_PN 적용 전후의 사구체 수를 읽는다."""
+    import json
+
+    meta = ROOT / str(cfg["raw"]).replace(".npz", ".meta.json")
+    if not meta.exists():
+        return "- 사구체 수 (θ_PN 적용 전): meta 없음"
+    c = json.loads(meta.read_text(encoding="utf-8"))["counts"]
+    return (f"- 사구체 수: 주석 후보 {c['candidates']['glomeruli']} (θ_PN 적용 전) → "
+            f"원본 {c['selected']['glomeruli']} (θ_PN 적용 후)")
+
+
 def run(cfg_path: Path) -> Path:
     cfg = load_config(cfg_path)
     raw = A.load_raw(ROOT / cfg["raw"])
@@ -54,7 +66,8 @@ def run(cfg_path: Path) -> Path:
          f"- 생성: {datetime.now(timezone.utc).isoformat(timespec='seconds')} (UTC)",
          f"- 설정: `{cfg_path}` (해시 {cfg.hash()}), 원본: `{cfg['raw']}`",
          f"- 원본 크기: PN {len(raw.pn_body)}, KC {len(raw.kc_body)}, MBON {len(raw.mbon_body)}, "
-         f"사구체 {len(raw.glom_names)}\n",
+         f"사구체 {len(raw.glom_names)} (θ_PN 적용 후)",
+         glom_line(cfg) + "\n",
          "## 분기 P 전환 조건 (6.4)\n",
          "| 사구체 | 원본에 있음 (4.1 통과) | 도달 KC 수 |", "|---|---|---|"]
     L += [f"| {g} | {'예' if cond['present'][g] else '아니오'} | {cond['reach'][g]} |" for g in pher]
@@ -82,8 +95,7 @@ def run(cfg_path: Path) -> Path:
           f"- PN별 최종 KC 연결 수 > 0: 연결 없는 PN {chk['pn_without_kc']}개 "
           f"(PN당 KC 수 분위수 {q(chk['pn_kc_count'])})",
           f"- KC별 선택 PN 입력량 분위수 (0/5/25/50/75/95/100): {q(kin)}. "
-          f"{cfg['report']['low_kc_input']} 미만인 KC {int((kin < cfg['report']['low_kc_input']).sum())}개 "
-          "(s_min 적용 뒤라 선별 기준보다 작아질 수 있음)",
+          f"{cfg['report']['low_kc_input']} 미만인 KC {int((kin < cfg['report']['low_kc_input']).sum())}개",
           f"- MBON에 닿지 않는 KC: {chk['kc_without_mbon']}개",
           f"- 네 행동 묶음이 비어 있지 않음: {all(diag['size'] > 0)}\n"]
 

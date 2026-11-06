@@ -763,9 +763,15 @@ def check_config_rois(cfg) -> None:
 
 
 def select_circuit(d: dict, cfg) -> dict:
-    """지시서 4.1: 주석으로 정의, 연결로 선별. 한 번 통과, 반복 제거 없음."""
+    """지시서 4.1: 주석으로 정의, 연결로 선별. 한 번 통과, 반복 제거 없음.
+
+    순서 (총책임자 결정 2026-11-06, DECISIONS 10.8): 연결 단위 정리(s_min)를 **맨 먼저** 하고,
+    θ_PN · θ_KC · KC 최소 입력 · θ_MBON은 정리된 시냅스 수로 계산한다.
+    연결 = 뉴런 쌍 하나. 시냅스 수 = 계수 ROI 안의 합 (PN 계열 → KC: 본 칼릭스, KC → MBON: 꽃자루 + 15구획).
+    """
     th = cfg["thresholds"]
     ex = cfg["exclude"]
+    s_min = th["s_min"]
     pn, kc, mbon = d["pn"], d["kc"], d["mbon"]
     ca = d["ca"]
     k2 = d["k2m"]["conn"]
@@ -777,8 +783,18 @@ def select_circuit(d: dict, cfg) -> dict:
     cand_mbon = mbon
     excluded = pn[~pn["bodyId"].isin(cand_pn["bodyId"])]
 
-    # 2. PN 선별: 본 칼릭스에서 후보 KC로 가는 시냅스 합 ≥ θ_PN
-    ca_kc = ca[ca["bodyId_post"].isin(cand_kc["bodyId"])]
+    # 0. 연결 단위 정리: s_min 미만 연결은 0 (맨 먼저)
+    ca_kc_all = ca[ca["bodyId_post"].isin(cand_kc["bodyId"])]
+    ca_pairs = ca_kc_all.groupby(["bodyId_pre", "bodyId_post"], as_index=False) \
+        .agg(weight=("weight", "sum"), src=("src", "first"))
+    ca_kc = ca_pairs[ca_pairs["weight"] >= s_min]
+    mb_rois = [ROI_PED, *ROI_COMPARTMENTS]
+    e_all = k2[k2["roi"].isin(mb_rois)].groupby(["bodyId_pre", "bodyId_post"], as_index=False)["weight"].sum()
+    e_all = e_all[e_all["bodyId_pre"].isin(cand_kc["bodyId"]) & e_all["bodyId_post"].isin(cand_mbon["bodyId"])]
+    e = e_all[e_all["weight"] >= s_min]
+    pnfam_all = ca_pairs[ca_pairs["bodyId_pre"].isin(pn["bodyId"])]
+
+    # 2. PN 선별: 본 칼릭스에서 후보 KC로 가는 (정리된) 시냅스 합 ≥ θ_PN
     pn_out = ca_kc[ca_kc["bodyId_pre"].isin(cand_pn["bodyId"])].groupby("bodyId_pre")["weight"].sum()
     pn_out = pn_out.reindex(cand_pn["bodyId"]).fillna(0)
     sel_pn_ids = np.sort(pn_out[pn_out >= th["theta_pn"]].index.to_numpy())
@@ -792,52 +808,48 @@ def select_circuit(d: dict, cfg) -> dict:
     kc_keep = (den > 0) & (frac >= th["theta_kc"]) & (num >= th["kc_min_selected_pn_input"])
     sel_kc_ids = np.sort(kc_keep[kc_keep].index.to_numpy())
 
-    # 4. MBON 선별: 선택 KC에서 받는 시냅스 (꽃자루 + 15구획) ≥ θ_MBON
-    mb_rois = [ROI_PED, *ROI_COMPARTMENTS]
-    e = k2[k2["roi"].isin(mb_rois)]
+    # 4. MBON 선별: 선택 KC에서 받는 (정리된) 시냅스 (꽃자루 + 15구획) ≥ θ_MBON
     e_sel = e[e["bodyId_pre"].isin(sel_kc_ids)]
     m_in = e_sel.groupby("bodyId_post")["weight"].sum().reindex(cand_mbon["bodyId"]).fillna(0)
     sel_mbon_ids = np.sort(m_in[m_in >= th["theta_mbon"]].index.to_numpy())
 
-    # 5. 시냅스 계수: PN→KC 본 칼릭스, KC→MBON 꽃자루 + 15구획
-    pk = ca_kc[ca_kc["bodyId_pre"].isin(sel_pn_ids) & ca_kc["bodyId_post"].isin(sel_kc_ids)] \
-        .groupby(["bodyId_post", "bodyId_pre"])["weight"].sum()
-    km = e_sel[e_sel["bodyId_post"].isin(sel_mbon_ids)].groupby(["bodyId_pre", "bodyId_post"])["weight"].sum()
+    # 5. 회로 행렬 (이미 정리된 연결)
+    pk = ca_kc[ca_kc["bodyId_pre"].isin(sel_pn_ids) & ca_kc["bodyId_post"].isin(sel_kc_ids)]
+    km = e_sel[e_sel["bodyId_post"].isin(sel_mbon_ids)]
     kc_idx = {b: i for i, b in enumerate(sel_kc_ids)}
     pn_idx = {b: i for i, b in enumerate(sel_pn_ids)}
     mb_idx = {b: i for i, b in enumerate(sel_mbon_ids)}
-    J_raw = np.zeros((len(sel_kc_ids), len(sel_pn_ids)), dtype=np.int64)
-    for (k, p_), wgt in pk.items():
-        J_raw[kc_idx[k], pn_idx[p_]] = wgt
-    W_raw = np.zeros((len(sel_kc_ids), len(sel_mbon_ids)), dtype=np.int64)
-    for (k, m), wgt in km.items():
-        W_raw[kc_idx[k], mb_idx[m]] = wgt
+    J = np.zeros((len(sel_kc_ids), len(sel_pn_ids)), dtype=np.int32)
+    J[pk["bodyId_post"].map(kc_idx).to_numpy(), pk["bodyId_pre"].map(pn_idx).to_numpy()] = pk["weight"].to_numpy()
+    W0 = np.zeros((len(sel_kc_ids), len(sel_mbon_ids)), dtype=np.int32)
+    W0[km["bodyId_pre"].map(kc_idx).to_numpy(), km["bodyId_post"].map(mb_idx).to_numpy()] = km["weight"].to_numpy()
+    assert ((J == 0) | (J >= s_min)).all() and ((W0 == 0) | (W0 >= s_min)).all()
 
-    # 6. s_min 미만 연결은 0
-    s_min = th["s_min"]
-    J = np.where(J_raw >= s_min, J_raw, 0).astype(np.int32)
-    W0 = np.where(W_raw >= s_min, W_raw, 0).astype(np.int32)
-
-    # MBON별 KC 종류 입력 비율: 모든 후보 KC 기준, 문턱 적용 전 (전체 보존)
+    # MBON별 KC 종류 입력 비율
     kc_cls = d["kc_cls"]
-    prof = np.zeros((len(sel_mbon_ids), 3), dtype=np.float64)
+    sel_cls = kc.set_index("bodyId").loc[sel_kc_ids, "kc_class"].to_numpy()
+    prof = np.stack([W0[sel_cls == c].sum(axis=0) for c in KC_CLASS_ORDER], axis=1).astype(np.float64)
+    prof = prof / prof.sum(axis=1, keepdims=True)                     # 선택 KC 기준 (W0)
+    prof_c = np.zeros((len(sel_mbon_ids), 3), dtype=np.float64)       # 후보 KC 전체 기준 (정리 뒤)
     ee = e[e["bodyId_post"].isin(sel_mbon_ids)].copy()
     ee["cls"] = ee["bodyId_pre"].map(kc_cls)
-    tab = ee.groupby(["bodyId_post", "cls"])["weight"].sum()
-    for (m, c), wgt in tab.items():
-        prof[mb_idx[m], KC_CLASS_ORDER.index(c)] = wgt
-    prof = prof / prof.sum(axis=1, keepdims=True)
+    for (m, c), wgt in ee.groupby(["bodyId_post", "cls"])["weight"].sum().items():
+        prof_c[mb_idx[m], KC_CLASS_ORDER.index(c)] = wgt
+    prof_c = prof_c / prof_c.sum(axis=1, keepdims=True)
 
     pn_t = pn.set_index("bodyId")
     kc_t = kc.set_index("bodyId")
     mb_t = mbon.set_index("bodyId")
     pn_glom = pn_t.loc[sel_pn_ids, "glom"].to_numpy().astype(str)
+    cand_glom_with_kc = cand_pn[cand_pn["bodyId"].isin(ca_kc["bodyId_pre"])]["glom"]
 
-    # 주석 불명 입력 (본 칼릭스, KC가 받는 것)
-    unann = ca_kc[ca_kc["src"] == "unannotated"]
+    # 주석 불명 입력 (본 칼릭스, KC가 받는 것, 정리 전)
+    unann = ca_kc_all[ca_kc_all["src"] == "unannotated"]
     stats = {
         "candidates": {"pn": int(len(cand_pn)), "kc": int(len(cand_kc)), "mbon": int(len(cand_mbon)),
-                       "pn_excluded_by_annotation": int(len(excluded))},
+                       "pn_excluded_by_annotation": int(len(excluded)),
+                       "glomeruli": int(cand_pn["glom"].nunique()),
+                       "glomeruli_with_kc_connection_after_s_min": int(cand_glom_with_kc.nunique())},
         "selected": {"pn": int(len(sel_pn_ids)), "kc": int(len(sel_kc_ids)),
                      "mbon": int(len(sel_mbon_ids)), "glomeruli": int(len(np.unique(pn_glom)))},
         "kc_fail": {"no_pn_family_input": int((den == 0).sum()),
@@ -847,15 +859,19 @@ def select_circuit(d: dict, cfg) -> dict:
         "unannotated_input_main_calyx": {
             "to_all_candidate_kc": int(unann["weight"].sum()),
             "to_selected_kc": int(unann[unann["bodyId_post"].isin(sel_kc_ids)]["weight"].sum()),
-            "pn_family_to_selected_kc": int(pn_family[pn_family["bodyId_post"].isin(sel_kc_ids)]["weight"].sum()),
+            "pn_family_to_selected_kc": int(pnfam_all[pnfam_all["bodyId_post"].isin(sel_kc_ids)]["weight"].sum()),
+            "note": "정리(s_min) 전 시냅스 수",
         },
         "s_min_effect": {
-            "pn_kc_connections_before": int((J_raw > 0).sum()), "pn_kc_connections_after": int((J > 0).sum()),
-            "pn_kc_synapses_before": int(J_raw.sum()), "pn_kc_synapses_after": int(J.sum()),
-            "kc_mbon_connections_before": int((W_raw > 0).sum()), "kc_mbon_connections_after": int((W0 > 0).sum()),
-            "kc_mbon_synapses_before": int(W_raw.sum()), "kc_mbon_synapses_after": int(W0.sum()),
+            "scope": "후보 전체 (PN 계열 → 후보 KC는 본 칼릭스, 후보 KC → 후보 MBON은 꽃자루 + 15구획)",
+            "pn_family_kc_connections_before": int(len(pnfam_all)),
+            "pn_family_kc_connections_after": int(len(pnfam_all[pnfam_all["weight"] >= s_min])),
+            "pn_family_kc_synapses_before": int(pnfam_all["weight"].sum()),
+            "pn_family_kc_synapses_after": int(pnfam_all[pnfam_all["weight"] >= s_min]["weight"].sum()),
+            "kc_mbon_connections_before": int(len(e_all)), "kc_mbon_connections_after": int(len(e)),
+            "kc_mbon_synapses_before": int(e_all["weight"].sum()), "kc_mbon_synapses_after": int(e["weight"].sum()),
         },
-        "after_s_min": {
+        "isolated_in_circuit": {
             "pn_without_kc": int(((J > 0).sum(axis=0) == 0).sum()),
             "kc_without_pn": int(((J > 0).sum(axis=1) == 0).sum()),
             "kc_without_mbon": int(((W0 > 0).sum(axis=1) == 0).sum()),
@@ -874,6 +890,7 @@ def select_circuit(d: dict, cfg) -> dict:
         "J_pn": J,
         "W0": W0,
         "mbon_class_profile": prof,
+        "mbon_class_profile_candidates": prof_c,
         "glom_names": np.unique(pn_glom).astype(str),
     }
     tables = {"pn_out": pn_out, "kc_num": num, "kc_den": den, "kc_frac": frac, "mbon_in": m_in,
@@ -940,7 +957,10 @@ def stage_extract(client_factory, refresh: bool, cfg_path: Path) -> Path:
         "kc_ratio_definition": "본 칼릭스에서 선택 PN 입력 / 본 칼릭스에서 이름에 PN이 들어간 모든 뉴런의 입력 "
                                "(배제한 PN 포함, APL · DPM · KC · 주석 불명 제외)",
         "mbon_class_profile": {"columns": ["gamma", "apbp", "ab"],
-                               "basis": "모든 후보 KC에서 받는 시냅스 (꽃자루 + 15구획), 문턱 적용 전"},
+                               "basis": "선택 KC에서 받는 시냅스 = W0의 열 합을 KC 종류별로 나눈 비율"},
+        "mbon_class_profile_candidates": {"columns": ["gamma", "apbp", "ab"],
+                                          "basis": "모든 후보 KC에서 받는 시냅스 (꽃자루 + 15구획, s_min 정리 뒤)"},
+        "selection_order": "s_min 연결 정리를 맨 먼저 하고, θ_PN · θ_KC · KC 최소 입력 · θ_MBON은 정리된 시냅스 수로 계산",
         "kc_class_labels": {"gamma": "γ (KCg-*)", "apbp": "α′β′ (KCa'b'-*)", "ab": "αβ (KCab-*)"},
         "counts": stats,
         "kc_types_selected": {k: int(v) for k, v in kc_types.items()},
@@ -965,11 +985,14 @@ def stage_extract(client_factory, refresh: bool, cfg_path: Path) -> Path:
              "## 단계별 남은 뉴런 수\n",
              "| 단계 | PN | KC | MBON |", "|---|---|---|---|",
              f"| 이름 규칙 전체 | {len(d['pn'])} | {len(d['kc'])} | {len(d['mbon'])} |",
+             f"| 0. s_min={th['s_min']} 연결 정리 (맨 먼저, 뉴런 수는 그대로) | | | |",
              f"| 1. 주석 후보 (제외 목록 적용) | {stats['candidates']['pn']} | {stats['candidates']['kc']} | {stats['candidates']['mbon']} |",
              f"| 2. PN ≥ θ_PN={th['theta_pn']} | {stats['selected']['pn']} | | |",
              f"| 3. KC 비율 ≥ {th['theta_kc']} · 입력 ≥ {th['kc_min_selected_pn_input']} | | {stats['selected']['kc']} | |",
              f"| 4. MBON ≥ θ_MBON={th['theta_mbon']} | | | {stats['selected']['mbon']} |",
-             "", f"- 선택 PN의 사구체 수: {stats['selected']['glomeruli']}",
+             "", f"- 사구체 수: 주석 후보 {stats['candidates']['glomeruli']} (θ_PN 적용 전), "
+             f"그중 정리 뒤 KC 연결이 있는 것 {stats['candidates']['glomeruli_with_kc_connection_after_s_min']}, "
+             f"θ_PN 적용 후 (원본) {stats['selected']['glomeruli']}",
              f"- KC 탈락 이유: PN 계열 입력 0 {stats['kc_fail']['no_pn_family_input']}, "
              f"비율 미달 {stats['kc_fail']['ratio_below_theta_kc']}, "
              f"비율은 통과했으나 입력 < {th['kc_min_selected_pn_input']} {stats['kc_fail']['selected_input_below_min']}",
@@ -991,10 +1014,11 @@ def stage_extract(client_factory, refresh: bool, cfg_path: Path) -> Path:
     for g in cfg["pheromone_glomeruli"]:
         m = arrays["pn_glom"] == g
         lines.append(f"| {g} | {int(m.sum())} | {', '.join(sorted(set(arrays['pn_type'][m])))} |")
-    lines += ["", "## s_min 적용 효과와 남은 고립 뉴런\n", "```", json.dumps(stats["s_min_effect"], indent=2),
-              json.dumps(stats["after_s_min"], indent=2), "```",
+    lines += ["", "## s_min 연결 정리 효과와 회로 안 고립 뉴런\n", "```",
+              json.dumps(stats["s_min_effect"], indent=2, ensure_ascii=False),
+              json.dumps(stats["isolated_in_circuit"], indent=2), "```",
               "", "## 주석 불명 입력 (본 칼릭스, KC가 받는 것)\n", "```",
-              json.dumps(stats["unannotated_input_main_calyx"], indent=2), "```"]
+              json.dumps(stats["unannotated_input_main_calyx"], indent=2, ensure_ascii=False), "```"]
     mbin = t["mbon_in"]
     mt = d["mbon"].set_index("bodyId")
     lines += ["", "## MBON 선별 (선택 KC에서 받는 시냅스)\n", "| bodyId | type | instance | 시냅스 | 선택 |", "|---|---|---|---|---|"]

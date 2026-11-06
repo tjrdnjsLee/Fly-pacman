@@ -2,7 +2,7 @@
   "format": "mb_anatomy_v1",
   "dataset": "hemibrain:v1.2.1",
   "server": "neuprint.janelia.org",
-  "exported_at": "2026-11-06T11:44:55+00:00",
+  "exported_at": "2026-11-06T11:58:57+00:00",
   "neuprint_python_version": "0.6.4",
   "view": "frontal",
   "axis_transform": {
@@ -41,12 +41,12 @@
       "with_coord": 106
     },
     "KC": {
-      "total": 1579,
-      "with_coord": 1579
+      "total": 1575,
+      "with_coord": 1575
     },
     "MBON": {
-      "total": 50,
-      "with_coord": 50
+      "total": 47,
+      "with_coord": 47
     },
     "DAN": {
       "total": 317,
@@ -87,7 +87,7 @@
   },
   "raw_circuit": {
     "path": "data/circuit/raw/mb_raw_v1.npz",
-    "sha256": "df9671810563ee510ed35ebc77272a5e82e3da9baeb783fee77aeb77f083b040"
+    "sha256": "cd6d2976791279a444cef89647a9e7daaf55d11efba79794d0ce155dda79168b"
   },
   "attribution": "hemibrain v1.2.1, Janelia FlyEM. Scheffer et al. 2020, eLife 9:e57443, \"A connectome and analysis of the adult Drosophila central brain\". CC BY 4.0 (관리자 확인 후 확정).",
   "honesty_note": "화면의 빛은 모델의 활동을 실제 해부 위치에 표시한 것이며 실제 초파리의 측정이 아니다 (TRD 19.13).",
