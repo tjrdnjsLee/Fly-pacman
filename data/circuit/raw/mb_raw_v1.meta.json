@@ -1,0 +1,176 @@
+{
+  "format": "mb_raw_v1",
+  "dataset": "hemibrain:v1.2.1",
+  "server": "neuprint.janelia.org",
+  "extracted_at": "2026-11-06T11:32:37+00:00",
+  "fetched_at": {
+    "rois": "2026-11-06T11:21:04.857211+00:00",
+    "neurons": "2026-11-06T11:21:11.665909+00:00",
+    "kc_inputs": "2026-11-06T11:21:25.419343+00:00",
+    "kc_to_mbon": "2026-11-06T11:21:31.699955+00:00"
+  },
+  "neuprint_python_version": "0.6.4",
+  "rois": {
+    "main_calyx": "CA(R)",
+    "accessory_calyx": [
+      "dACA(R)",
+      "lACA(R)",
+      "vACA(R)"
+    ],
+    "peduncle": "PED(R)",
+    "compartments": [
+      "a1(R)",
+      "a2(R)",
+      "a3(R)",
+      "a'1(R)",
+      "a'2(R)",
+      "a'3(R)",
+      "b1(R)",
+      "b2(R)",
+      "b'1(R)",
+      "b'2(R)",
+      "g1(R)",
+      "g2(R)",
+      "g3(R)",
+      "g4(R)",
+      "g5(R)"
+    ],
+    "lobes_for_check": [
+      "aL(R)",
+      "a'L(R)",
+      "bL(R)",
+      "b'L(R)",
+      "gL(R)"
+    ],
+    "lateral_horn": "LH(R)"
+  },
+  "synapse_count_rois": {
+    "J_pn": [
+      "CA(R)"
+    ],
+    "W0": [
+      "PED(R)",
+      "a1(R)",
+      "a2(R)",
+      "a3(R)",
+      "a'1(R)",
+      "a'2(R)",
+      "a'3(R)",
+      "b1(R)",
+      "b2(R)",
+      "b'1(R)",
+      "b'2(R)",
+      "g1(R)",
+      "g2(R)",
+      "g3(R)",
+      "g4(R)",
+      "g5(R)"
+    ]
+  },
+  "thresholds": {
+    "s_min": 3,
+    "theta_pn": 50,
+    "theta_kc": 0.8,
+    "kc_min_selected_pn_input": 20,
+    "theta_mbon": 100
+  },
+  "exclude": {
+    "pn_lineages": [
+      "vPN"
+    ],
+    "pn_categories": [
+      "z",
+      "thermo_hygro",
+      "multi_vp",
+      "multi",
+      "non_al"
+    ],
+    "category_rules": {
+      "non_al": "type이 WEDPN으로 시작하거나 LPN",
+      "multi": "type이 M_ 또는 MZ_로 시작하거나 사구체 이름에 + (VP 없음)",
+      "multi_vp": "사구체 이름에 +, VP로 시작",
+      "z": "type이 Z_로 시작",
+      "thermo_hygro": "사구체가 VP로 시작 (단일)",
+      "uni": "그 밖의 단일 사구체 (V, D 포함)"
+    }
+  },
+  "kc_ratio_definition": "본 칼릭스에서 선택 PN 입력 / 본 칼릭스에서 이름에 PN이 들어간 모든 뉴런의 입력 (배제한 PN 포함, APL · DPM · KC · 주석 불명 제외)",
+  "mbon_class_profile": {
+    "columns": [
+      "gamma",
+      "apbp",
+      "ab"
+    ],
+    "basis": "모든 후보 KC에서 받는 시냅스 (꽃자루 + 15구획), 문턱 적용 전"
+  },
+  "kc_class_labels": {
+    "gamma": "γ (KCg-*)",
+    "apbp": "α′β′ (KCa'b'-*)",
+    "ab": "αβ (KCab-*)"
+  },
+  "counts": {
+    "candidates": {
+      "pn": 145,
+      "kc": 1927,
+      "mbon": 71,
+      "pn_excluded_by_annotation": 316
+    },
+    "selected": {
+      "pn": 106,
+      "kc": 1579,
+      "mbon": 50,
+      "glomeruli": 51
+    },
+    "kc_fail": {
+      "no_pn_family_input": 142,
+      "ratio_below_theta_kc": 179,
+      "selected_input_below_min": 27
+    },
+    "unannotated_input_main_calyx": {
+      "to_all_candidate_kc": 2378,
+      "to_selected_kc": 2003,
+      "pn_family_to_selected_kc": 167005
+    },
+    "s_min_effect": {
+      "pn_kc_connections_before": 10363,
+      "pn_kc_connections_after": 9053,
+      "pn_kc_synapses_before": 161458,
+      "pn_kc_synapses_after": 159945,
+      "kc_mbon_connections_before": 24640,
+      "kc_mbon_connections_after": 19495,
+      "kc_mbon_synapses_before": 250539,
+      "kc_mbon_synapses_after": 243333
+    },
+    "after_s_min": {
+      "pn_without_kc": 0,
+      "kc_without_pn": 0,
+      "kc_without_mbon": 0,
+      "mbon_without_kc": 0
+    }
+  },
+  "kc_types_selected": {
+    "KCa'b'-ap1": 41,
+    "KCa'b'-ap2": 107,
+    "KCa'b'-m": 119,
+    "KCab-c": 203,
+    "KCab-m": 347,
+    "KCab-s": 213,
+    "KCg-d": 5,
+    "KCg-m": 543,
+    "KCg-t": 1
+  },
+  "sort_rule": "모든 뉴런 배열은 bodyId 오름차순. 이 순서가 회로 순서다. glom_names는 문자열 정렬.",
+  "snapshot_sha256": {
+    "neurons.csv": "0041ed714f644dc2300e609cbd8fc80a2213f4bf82ca5d04b4c7f053236118a6",
+    "neuron_roi_counts.csv": "841daca95ca8e7a4e9736c62acceb67ce1f0b65de459c9fe31f98570a9738818",
+    "kc_inputs_conn.csv": "de8bc37c0f971f84d2e1cd4c0beca5d7eec155a63ca1a02c639c0ebab391a392",
+    "kc_inputs_neurons.csv": "5c153465e5f5820798feda3bd61dfda4b3baedbbe0ebe7618a2e0eca4b3d9a08",
+    "kc_to_mbon_conn.csv": "b6cf6800856207919d82aa28113a2c754a9349f653c6fbdecee6fd4120cf5471",
+    "rois.csv": "2382e8dcdede033e8ae4142162ad00cd072621f43cdffe6ed06e8d1a4f7f4742"
+  },
+  "snapshot_dir": "runs/extract/snapshot (저장소에 올리지 않음)",
+  "raw_sha256": "df9671810563ee510ed35ebc77272a5e82e3da9baeb783fee77aeb77f083b040",
+  "attribution": "hemibrain v1.2.1, Janelia FlyEM. Scheffer et al. 2020, eLife 9:e57443, \"A connectome and analysis of the adult Drosophila central brain\". CC BY 4.0 (관리자 확인 후 확정).",
+  "config": "configs/circuit_extract_v1.yaml",
+  "config_hash": "1ac6d4279450923c"
+}

@@ -1,0 +1,49 @@
+# 회로 추출 · 해부 자료 설정 (M1 뇌 작업 지시서 ① 4 · 5절). 이 파일은 관리자 소유다.
+# 문턱 · 제외 목록: 총책임자 확정 2026-11-06 (단계 1 보고 runs/extract/inventory_report.md 검토 후,
+# 학습 결과를 보기 전에 데이터 품질만 보고 정함). 이유는 docs/DECISIONS.md 10절.
+dataset: "hemibrain:v1.2.1"
+server: neuprint.janelia.org
+
+rois:
+  main_calyx: "CA(R)"
+  accessory_calyx: ["dACA(R)", "lACA(R)", "vACA(R)"]   # 회로 계수에는 쓰지 않음 (기록용)
+  peduncle: "PED(R)"
+  compartments: ["a1(R)", "a2(R)", "a3(R)", "a'1(R)", "a'2(R)", "a'3(R)", "b1(R)", "b2(R)",
+                 "b'1(R)", "b'2(R)", "g1(R)", "g2(R)", "g3(R)", "g4(R)", "g5(R)"]
+  lobes: ["aL(R)", "a'L(R)", "bL(R)", "b'L(R)", "gL(R)"]   # 검증용 (구획의 상위)
+  lateral_horn: "LH(R)"
+  midline: "EB"                                           # 정중선 기준 (해부 확인 시험)
+
+thresholds:
+  s_min: 3                       # 연결당 최소 시냅스 수. 미만은 0 (4.1의 6번, 마지막에 적용)
+  theta_pn: 50                   # PN의 본 칼릭스 → 후보 KC 시냅스 합 최솟값
+  theta_kc: 0.8                  # KC의 본 칼릭스 PN 계열 입력 중 선택 PN 비율 최솟값 (정의 A)
+  kc_min_selected_pn_input: 20   # KC가 선택 PN에서 받는 본 칼릭스 시냅스 최솟값 (새 기준)
+  theta_mbon: 100                # MBON이 선택 KC에서 받는 시냅스 최솟값 (꽃자루 + 15구획)
+
+exclude:
+  pn_lineages: [vPN]             # 계열 이름이 정확히 vPN인 것만 (lvPN, ivPN 등은 해당 없음)
+  pn_categories: [z, thermo_hygro, multi_vp, multi, non_al]
+  # 포함: 단일 사구체 V, D. KC는 종류 이름으로 빼지 않는다 (문턱이 거름).
+  # MBON은 instance 좌우와 관계없이 theta_mbon으로만 거른다 (MBON15-like, MBON17-like 포함).
+
+pheromone_glomeruli: [DA1, VA1v, VA1d, DL3]
+
+output:
+  raw: data/circuit/raw/mb_raw_v1.npz
+  snapshot_dir: runs/extract/snapshot
+  anatomy: data/anatomy/mb_anatomy_v1.npz
+
+anatomy:
+  view: frontal
+  # 축 변환 가설 (2026-11-06 ROI 메시 · 시냅스 좌표로 확인). 5.2 확인 시험이 틀리면 멈춘다.
+  drop_axis: y          # 앞뒤 축 (칼릭스 y≈13.6k, 엽 y≈30k)
+  up_axis: z
+  up_sign: -1           # z가 작을수록 등쪽 (α엽 끝 z≈4k, 꽃자루 z≈14k–21k)
+  horizontal_axis: x
+  horizontal_sign: 1    # 앞에서 본 모습: 오른쪽 버섯체의 정중선 쪽이 화면 오른쪽
+  voxel_nm: 8           # 서버 Meta와 대조한다
+  raster_um: 0.5        # 영역 다각형을 만들 때의 격자 크기
+  simplify_um: 0.5      # Douglas–Peucker 단순화 허용 오차
+  min_ring_area_um2: 4.0
+  landmark_quantile: 0.95   # 끝점 = 기준점에서 가장 먼 5% 꼭짓점의 평균
