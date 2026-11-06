@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core.events import Event, Kind
-from flypac.core.rng import make_rng
+from flypac.core.rng import GameRngs, game_rngs, make_rng
 from flypac.core.types import FlyObs
 from flypac.engine.fake import FakeVecGame
 from flypac.engine.game import VecGame
@@ -176,6 +176,9 @@ class Runner:
         retired = over & ~more  # 모든 판을 끝낸 칸: 새 판은 시작하지 않고 학습 활성만 내린다
         self.finished |= retired
         self.game_no[more] += 1
+        bundle = getattr(self.ghosts, "rngs", None)
+        if isinstance(bundle, GameRngs):          # 새 판: (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2)
+            bundle.renew(more, self.game_no)
         self.game.retire(retired)
         self.game.reset_game(more)
         self.game.reset_life(ends & ~over)
@@ -214,6 +217,6 @@ def build_runner(cfg, recorder=None) -> Runner:
     pacman = RuleBasedPacman(amap, cfg, make_rng(seeds[0], 0, "pacman"))
     if cfg.ghosts.kind != "random":
         raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: flybrain(뇌 담당), original(B1)
-    ghosts = RandomGhost(cfg, B, make_rng(seeds[0], 0, "ghost"))
+    ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
     regime = make_regime(cfg)
     return Runner(cfg, amap, game, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())

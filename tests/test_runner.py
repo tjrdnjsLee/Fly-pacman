@@ -5,7 +5,7 @@ from helpers import MAP, Scripted, SpyGhost, SpyRecorder, cell, make_cfg, place,
 from flypac.core import directions as d
 from flypac.core.config import load_config
 from flypac.core.events import Event, Kind
-from flypac.core.rng import make_rng
+from flypac.core.rng import game_rngs
 from flypac.core.runner import build_runner
 from pathlib import Path
 
@@ -17,7 +17,7 @@ def runner_with(recorder=None, pacman=None, ghost_cls=SpyGhost, **over):
     if pacman is not None:
         r.pacman = pacman
     if ghost_cls is not None:
-        r.ghosts = ghost_cls(cfg, r.B, make_rng(0, 0, "ghost"))
+        r.ghosts = ghost_cls(cfg, r.B, game_rngs(cfg.seeds, "ghost"))
     r._reset_all()
     return r, rec
 
@@ -164,7 +164,7 @@ def test_views_user_is_an_error_at_start_outside_b1():
     with pytest.raises(ValueError, match="uses_views"):
         runner_with(condition="regime1", ghost_cls=B1Spy)
     r = build_runner(make_cfg(condition="regime1"))
-    r.ghosts = B1Spy(r.cfg, r.B, make_rng(0, 0, "ghost"))
+    r.ghosts = B1Spy(r.cfg, r.B, game_rngs(r.cfg.seeds, "ghost"))
     with pytest.raises(ValueError):
         r.run()
 

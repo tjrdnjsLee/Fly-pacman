@@ -6,7 +6,6 @@ import numpy as np
 from helpers import MAP, make_cfg
 
 from flypac.core import directions as d
-
 from flypac.ghosts.random_ghost import RandomGhost
 from flypac.core.runner import build_runner
 from flypac.recording.recorder import Recorder
@@ -85,7 +84,7 @@ def test_capture_tick_action_is_preserved_in_replay(tmp_path):
                    engine={"lives": 2, "pacman_speed": 0.0, "watchdog_ticks": 40})
     rec = Recorder(tmp_path / "run", cfg)
     r = build_runner(cfg, rec)
-    r.ghosts = FirstLegal(cfg, r.B, r.ghosts.rng)
+    r.ghosts = FirstLegal(cfg, r.B, r.ghosts.rngs)
     g = r.game.games[0]
     g.released[:] = [True, False, False, False]
     found = False

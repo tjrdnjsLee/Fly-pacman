@@ -15,6 +15,9 @@ from flypac.core.types import FlyObs, GameView
 class GhostController(ABC):
     # 실행기는 이 값이 참인 조종기(B1)에만 views를 넘긴다 (TRD 원칙 2)
     uses_views = False
+    # 난수를 쓰는 조종기는 칸별 생성기 묶음(core.rng.GameRngs)을 여기에 둔다. 실행기가 새 판을 시작할 때
+    # rngs.renew(mask, game_no)를 불러 (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2, DECISIONS 11절).
+    rngs = None
 
     @abstractmethod
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:

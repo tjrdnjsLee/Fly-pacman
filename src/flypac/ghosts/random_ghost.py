@@ -5,13 +5,17 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.brain.base import GhostController
+from flypac.core.rng import GameRngs
 from flypac.core.types import FlyObs, GameView
 
 
 class RandomGhost(GhostController):
-    def __init__(self, cfg, B: int, rng: np.random.Generator):
+    def __init__(self, cfg, B: int, rngs: GameRngs):
+        """rngs: 칸별 생성기 묶음 (core.rng.game_rngs(seeds, "ghost")). 칸 b는 rngs[b]만 쓴다."""
+        if not isinstance(rngs, GameRngs) or len(rngs) != B:
+            raise TypeError("RandomGhost에는 길이 B의 GameRngs(core.rng.game_rngs)를 넘긴다")
         self.B, self.F = B, 4
-        self.rng = rng
+        self.rngs = rngs
         self.proposed = np.full((B, self.F), -1, dtype=np.int64)
         self.last_pi = np.zeros((B, self.F, 4))  # 재생 로그용: 고른 행동 확률 (가능한 행동에 균등)
         self.n_committed = np.zeros((B, self.F), dtype=np.int64)
@@ -31,7 +35,7 @@ class RandomGhost(GhostController):
             for k in range(self.F):
                 if obs.decide[b, k]:
                     legal = np.flatnonzero(obs.legal[b, k])
-                    out[b, k] = self.rng.choice(legal)
+                    out[b, k] = self.rngs[b].choice(legal)
                     self.last_pi[b, k, legal] = 1.0 / len(legal)
         self.proposed = out
         return out
@@ -58,8 +62,8 @@ class RandomGhost(GhostController):
         self.proposed = np.where(np.asarray(mask, dtype=bool)[:, None], -1, self.proposed)
 
     def state_dict(self) -> dict:
-        return {"rng": self.rng.bit_generator.state, "reward_total": self.reward_total.copy()}
+        return {"rngs": self.rngs.state_dict(), "reward_total": self.reward_total.copy()}
 
     def load_state_dict(self, state: dict) -> None:
-        self.rng.bit_generator.state = state["rng"]
+        self.rngs.load_state_dict(state["rngs"])
         self.reward_total = np.asarray(state["reward_total"]).copy()
