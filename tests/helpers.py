@@ -90,9 +90,9 @@ class SpyGhost(RandomGhost):
         self.log.append(("propose", alive.copy(), views))
         return super().propose(obs, alive, views)
 
-    def commit(self, executed, active):
-        self.log.append(("commit", executed.copy(), active.copy()))
-        super().commit(executed, active)
+    def commit(self, committed, active):
+        self.log.append(("commit", committed.copy(), active.copy()))
+        super().commit(committed, active)
 
     def on_release(self, mask):
         self.log.append(("on_release", mask.copy()))

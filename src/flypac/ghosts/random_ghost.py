@@ -40,9 +40,9 @@ class RandomGhost(GhostController):
         self.proposed = out
         return out
 
-    def commit(self, executed: np.ndarray, active: np.ndarray) -> None:
-        self.n_committed += executed
-        self.n_committed_active += executed & active
+    def commit(self, committed: np.ndarray, active: np.ndarray) -> None:
+        self.n_committed += committed
+        self.n_committed_active += committed & active
 
     def give_reward(self, R: np.ndarray) -> None:
         self.reward_total += R

@@ -28,8 +28,13 @@ class GhostController(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def commit(self, executed: np.ndarray, active: np.ndarray) -> None:
-        """확정: 실제로 실행된 결정만 학습 갱신과 흔적에 반영 (TRD 10.4). executed, active: (B,F) bool."""
+    def commit(self, committed: np.ndarray, active: np.ndarray) -> None:
+        """확정: committed가 참인 결정만 흔적 · 학습 갱신 · 증거 초기화에 반영 (TRD 4.7, 10.4).
+
+        committed, active: (B,F) bool. committed는 엔진이 이번 틱의 제안을 결정으로 받아들였다는 뜻이며
+        '움직였다'(moved)와 다르다: 복도 · 집 출구 이동은 거짓, 지연 반전은 저장한 틱에 참.
+        committed가 거짓인 칸의 제안은 버린다 (증거 x는 그대로 둔다). 표: DECISIONS 4절.
+        """
         raise NotImplementedError
 
     @abstractmethod

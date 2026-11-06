@@ -93,7 +93,7 @@ class Runner:
         frame_odor, frame_phero = self.odor.c.copy(), phero_c.copy()
         alive = np.array([not v.frozen for v in views]) & running
         fly_act = self.ghosts.propose(obs, alive, views if self.pass_views else None)             # 6
-        ev2, executed, active = game.step_flies(fly_act)                  # 7
+        ev2, moved, committed, active = game.step_flies(fly_act)          # 7 (DECISIONS 4절의 표)
         released = np.zeros(B, dtype=bool)
         eaten = np.zeros((B, F), dtype=bool)
         for b in range(B):
@@ -107,7 +107,7 @@ class Runner:
         # 거르므로 순서를 바꿔도 비활성 결정은 흔적에 들어가지 않는다.
         if released.any():
             self.ghosts.on_release(released)  # 학습 활성은 게임 단위
-        self.ghosts.commit(executed, active)
+        self.ghosts.commit(committed, active)  # 확정된 결정만. 복도 · 집 출구 이동(moved만 참)은 넘기지 않는다
         if eaten.any():
             self.ghosts.on_eaten(eaten)
         timers = game.tick_timers()                                       # 9

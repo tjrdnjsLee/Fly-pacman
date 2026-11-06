@@ -158,21 +158,28 @@ class FakeGame(Game):
             events.append(self._ev(Kind.ALL_RELEASED, k))  # 사건 자체는 활성 이전에 생긴다
             self.learning_active = True
 
-    def _move_fly(self, k: int, action: int, events: list) -> bool:
+    def _move_fly(self, k: int, action: int, events: list) -> tuple[bool, bool]:
+        """반환 (moved, committed). DECISIONS 4절의 표: 집 출구 통과와 복도 이동은 moved만 참이다.
+
+        committed는 결정 지점(반전 외 선택지 2개 이상)에서 받은 행동 ≥ 0으로 이동했을 때만 참이다.
+        이동한 칸에서 포획되어도 참이다. 속도가 모자라 움직이지 않으면 둘 다 거짓 (제안은 버린다).
+        가짜 엔진은 z가 항상 0이라 지연 반전(결정 지점 2)이 없다.
+        """
         if not self.released[k]:
             if self.life_tick < self.release_ticks[k]:
-                return False
+                return False, False
             self._release(k, events)
             self._collision_with_pacman(events, k)
-            return True
+            return True, False
         self.fly_acc[k] += self.v_fly
         if self.fly_acc[k] < 1.0:
-            return False
+            return False, False
         self.fly_acc[k] -= 1.0
         opts = self._fly_options(k)
         if not opts:
-            return False
+            return False, False
         h = int(self.fly_dir[k])
+        committed = action >= 0 and len(opts) >= 2
         if action >= 0:
             direction = int(d.ego_to_abs(h, action))
             if direction not in opts:
@@ -182,20 +189,21 @@ class FakeGame(Game):
         self.fly_dir[k] = direction
         self.fly_cell[k] = int(self.map.nbr[self.fly_cell[k], direction])
         self._collision_with_pacman(events, k)
-        return True
+        return True, committed
 
-    def step_flies(self, actions: np.ndarray) -> tuple[list[Event], np.ndarray, np.ndarray]:
+    def step_flies(self, actions: np.ndarray) -> tuple[list[Event], np.ndarray, np.ndarray, np.ndarray]:
         events: list[Event] = []
-        executed = np.zeros(self.F, dtype=bool)
+        moved = np.zeros(self.F, dtype=bool)
+        committed = np.zeros(self.F, dtype=bool)
         active = np.full(self.F, self.learning_active, dtype=bool)
         if self.frozen:
-            return events, executed, active
+            return events, moved, committed, active
         for k in range(self.F):
             active[k] = self.learning_active  # 이 초파리가 움직이는 순간의 값
-            executed[k] = self._move_fly(k, int(actions[k]), events)
-            if self.frozen:  # 도중에 종료되면 나머지는 실행하지 않는다
+            moved[k], committed[k] = self._move_fly(k, int(actions[k]), events)
+            if self.frozen:  # 도중에 종료되면 나머지는 실행하지 않는다 (제안은 버림)
                 break
-        return events, executed, active
+        return events, moved, committed, active
 
     def tick_timers(self) -> list[Event]:
         events: list[Event] = []
