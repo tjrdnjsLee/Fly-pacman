@@ -115,13 +115,13 @@ def make_synthetic_arrays(
         obs = sense(field.c, phero_c, [view], (legal, decide), c0, nbr=amap.nbr)
 
         frame = dict(
-            pac_cell=pac, pac_dir=pac_dir, pac_acc=rng.random(), fly_cell=fly, fly_dir=fly_dir,
+            pac_cell=pac, pac_dir=pac_dir, pac_acc=rng.random(), fly_cell=fly.copy(), fly_dir=fly_dir.copy(),
             fly_acc=rng.random(F), fly_z=np.zeros(F, bool), fly_in_house=in_house, lives=3,
-            power_ticks=0, score=score, fruit=0, odor_field=field.c[0], sense=np.concatenate(
+            power_ticks=0, score=score, fruit=0, odor_field=field.c[0].copy(), sense=np.concatenate(
                 [obs.odor[0], obs.phero[0]], axis=1), action=action, pi=pi,
         )
         if phero:
-            frame["phero_field"] = ph_field.c[0]
+            frame["phero_field"] = ph_field.c[0].copy()
         if brain:
             kc = np.full((F, k), -1, dtype=np.int16)
             pn = np.concatenate([obs.odor[0], obs.z[0][:, None].astype(float), obs.phero[0]], axis=1)

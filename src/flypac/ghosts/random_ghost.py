@@ -54,7 +54,8 @@ class RandomGhost(GhostController):
 
     def reset_life(self, mask: np.ndarray) -> None:
         self.n_reset_life += mask
-        self.proposed[mask] = -1
+        # 제자리에서 고치지 않는다: propose가 돌려준 배열은 실행기 · 기록기가 아직 들고 있을 수 있다
+        self.proposed = np.where(np.asarray(mask, dtype=bool)[:, None], -1, self.proposed)
 
     def state_dict(self) -> dict:
         return {"rng": self.rng.bit_generator.state, "reward_total": self.reward_total.copy()}
