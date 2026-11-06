@@ -1,0 +1,95 @@
+{
+  "format": "mb_anatomy_v1",
+  "dataset": "hemibrain:v1.2.1",
+  "server": "neuprint.janelia.org",
+  "exported_at": "2026-11-06T11:44:55+00:00",
+  "neuprint_python_version": "0.6.4",
+  "view": "frontal",
+  "axis_transform": {
+    "dropped_axis": "y (앞뒤)",
+    "u (가로)": "+x × scale",
+    "v (세로, 위 = 등쪽)": "-z × scale",
+    "note": "앞에서 본 모습. 오른쪽 버섯체의 정중선 쪽이 화면 오른쪽(+u)."
+  },
+  "units": "μm",
+  "source_units": "복셀 [8, 8, 8] nanometers",
+  "scale_um_per_voxel": 0.008,
+  "xyz_um": "원 좌표계(x, y, z) × scale. 축 순서는 바꾸지 않음",
+  "orientation_checks": {
+    "가_alpha_tip_above_root": true,
+    "나_beta_tip_medial_to_root": true,
+    "다_calyx_above_root": true,
+    "라_dropped_axis_is_calyx_root_axis": true
+  },
+  "landmark_definitions": {
+    "calyx": "CA(R) 메시 꼭짓점 평균",
+    "root": "PED(R) 꼭짓점 중 칼릭스 중심에서 가장 먼 5%의 평균 (엽 갈림 쪽 끝)",
+    "alpha_tip": "aL(R) 꼭짓점 중 root에서 가장 먼 쪽 평균",
+    "beta_tip": "bL(R) 꼭짓점 중 root에서 가장 먼 쪽 평균",
+    "midline": "EB 메시 꼭짓점 평균 (정중선 구조)"
+  },
+  "representative_coordinate": {
+    "PN": "본 칼릭스 CA(R) 안 PN→원본 KC 시냅스의 시냅스 전 위치 중심",
+    "KC": "본 칼릭스 CA(R) 안 원본 PN→KC 시냅스의 시냅스 후 위치 중심 (발톱)",
+    "MBON": "꽃자루 + 15구획 안 원본 KC→MBON 시냅스의 시냅스 후 위치 중심",
+    "DAN": "15구획 안 DAN 시냅스 전 위치 중심. dan_compartment = 시냅스 전 위치가 가장 많은 구획"
+  },
+  "neuron_order": "PN, KC, MBON (원본 회로 순서 = bodyId 오름차순), DAN (bodyId 오름차순)",
+  "counts": {
+    "PN": {
+      "total": 106,
+      "with_coord": 106
+    },
+    "KC": {
+      "total": 1579,
+      "with_coord": 1579
+    },
+    "MBON": {
+      "total": 50,
+      "with_coord": 50
+    },
+    "DAN": {
+      "total": 317,
+      "with_coord": 315
+    }
+  },
+  "regions": {
+    "rois": [
+      "CA(R)",
+      "PED(R)",
+      "a1(R)",
+      "a2(R)",
+      "a3(R)",
+      "a'1(R)",
+      "a'2(R)",
+      "a'3(R)",
+      "b1(R)",
+      "b2(R)",
+      "b'1(R)",
+      "b'2(R)",
+      "g1(R)",
+      "g2(R)",
+      "g3(R)",
+      "g4(R)",
+      "g5(R)",
+      "LH(R)"
+    ],
+    "calyx_note": "칼릭스 영역은 본 칼릭스 CA(R)만. 부속 칼릭스(dACA · lACA · vACA)는 그리지 않음",
+    "model_term": {
+      "LH(R)": "외측뿔은 모델 항(본능 g·o_a)이며 뉴런이 아님"
+    },
+    "antennal_lobe": "그리지 않음 (hemibrain에 일부만 있음)",
+    "method": "ROI 메시 삼각형 정면 투영 → 격자 칠하기 → 3×3 닫힘 → 경계 추적 → Douglas–Peucker",
+    "raster_um": 0.5,
+    "simplify_tolerance_um": 0.5,
+    "min_ring_area_um2": 4.0,
+    "rings": "ring_offsets[k]:ring_offsets[k+1] 가 고리 k의 꼭짓점. ring_is_hole = 시계 방향(구멍)"
+  },
+  "raw_circuit": {
+    "path": "data/circuit/raw/mb_raw_v1.npz",
+    "sha256": "df9671810563ee510ed35ebc77272a5e82e3da9baeb783fee77aeb77f083b040"
+  },
+  "attribution": "hemibrain v1.2.1, Janelia FlyEM. Scheffer et al. 2020, eLife 9:e57443, \"A connectome and analysis of the adult Drosophila central brain\". CC BY 4.0 (관리자 확인 후 확정).",
+  "honesty_note": "화면의 빛은 모델의 활동을 실제 해부 위치에 표시한 것이며 실제 초파리의 측정이 아니다 (TRD 19.13).",
+  "config_hash": "1ac6d4279450923c"
+}
