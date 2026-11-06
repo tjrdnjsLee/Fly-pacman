@@ -5,7 +5,7 @@ from helpers import MAP, Scripted, SpyGhost, SpyRecorder, cell, make_cfg, place,
 from flypac.core import directions as d
 from flypac.core.config import load_config
 from flypac.core.events import Event, Kind
-from flypac.core.rng import make_rng
+from flypac.core.rng import game_rngs
 from flypac.core.runner import build_runner
 from pathlib import Path
 
@@ -17,7 +17,7 @@ def runner_with(recorder=None, pacman=None, ghost_cls=SpyGhost, **over):
     if pacman is not None:
         r.pacman = pacman
     if ghost_cls is not None:
-        r.ghosts = ghost_cls(cfg, r.B, make_rng(0, 0, "ghost"))
+        r.ghosts = ghost_cls(cfg, r.B, game_rngs(cfg.seeds, "ghost"))
     r._reset_all()
     return r, rec
 
@@ -58,7 +58,7 @@ def test_life_lost_in_pacman_phase_before_departure():
     assert catch.active is False
     log = r.ghosts.log
     commit = [x for x in log if x[0] == "commit"][0]
-    assert not commit[1].any()  # executed 전부 거짓
+    assert not commit[1].any()  # committed 전부 거짓
     assert [x for x in log if x[0] == "propose"][0][1].tolist() == [False]  # 동결 게임
     assert not r.ghosts.reward_total.any()  # 체제 보상 0
     assert len(rec.of("life_end")) == 1 and not rec.of("game_end")
@@ -124,7 +124,8 @@ def test_fly_phase_catch_blocks_later_flies_and_rewards_by_regime():
     r.ghosts.propose = lambda obs, alive, views=None: np.array([[-1, d.FORWARD, -1, -1]])
     r.tick()
     commit = [x for x in r.ghosts.log if x[0] == "commit"][0]
-    assert commit[1][0].tolist() == [True, True, False, False]
+    # 0번은 복도 이동(-1)이라 확정 아님, 1번은 결정한 뒤 이동한 칸에서 포획: 확정 (DECISIONS 4절의 표)
+    assert commit[1][0].tolist() == [False, True, False, False]
     # 체제1: 잡은 놈 +1, 나머지 -p, 팀 합 1 - 3p
     R = r.ghosts.reward_total[0]
     assert R[1] == 1.0 and np.allclose(np.delete(R, 1), -0.25) and np.isclose(R.sum(), 1 - 3 * 0.25)
@@ -164,7 +165,7 @@ def test_views_user_is_an_error_at_start_outside_b1():
     with pytest.raises(ValueError, match="uses_views"):
         runner_with(condition="regime1", ghost_cls=B1Spy)
     r = build_runner(make_cfg(condition="regime1"))
-    r.ghosts = B1Spy(r.cfg, r.B, make_rng(0, 0, "ghost"))
+    r.ghosts = B1Spy(r.cfg, r.B, game_rngs(r.cfg.seeds, "ghost"))
     with pytest.raises(ValueError):
         r.run()
 
@@ -237,9 +238,9 @@ class TraceGhost(SpyGhost):
         self.e[mask] = 0
         super().on_release(mask)
 
-    def commit(self, executed, active):
-        self.e += executed & active
-        super().commit(executed, active)
+    def commit(self, committed, active):
+        self.e += committed & active
+        super().commit(committed, active)
 
 
 def test_first_active_decisions_after_all_released_survive_on_release():
@@ -253,7 +254,7 @@ def test_first_active_decisions_after_all_released_survive_on_release():
     names = [x[0] for x in r.ghosts.log[start:]]
     assert names.index("on_release") < names.index("commit")  # on_release → commit
     commit = [x for x in r.ghosts.log[start:] if x[0] == "commit"][0]
-    assert commit[1][0].tolist() == [True, True, True, True]
+    assert commit[1][0].tolist() == [False, True, True, True]  # 0번의 출구 통과는 확정이 아니다
     assert commit[2][0].tolist() == [False, True, True, True]  # 0번의 출구 통과는 활성 이전
     assert r.ghosts.e[0].tolist() == [0, 1, 1, 1]  # 흔적이 지워지지 않았다
 
@@ -266,8 +267,8 @@ def test_on_eaten_runs_after_commit():
     orig = g.step_flies
 
     def with_eaten(actions):
-        ev, ex, ac = orig(actions)
-        return ev + [Event(Kind.EATEN, g.index, g.tick, 2, ac[2])], ex, ac
+        ev, mv, cm, ac = orig(actions)
+        return ev + [Event(Kind.EATEN, g.index, g.tick, 2, ac[2])], mv, cm, ac
 
     g.step_flies = with_eaten
     r.tick()

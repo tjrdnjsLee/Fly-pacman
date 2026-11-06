@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core.events import Event, Kind
-from flypac.core.rng import make_rng
+from flypac.core.rng import GameRngs, game_rngs, make_rng
 from flypac.core.types import FlyObs
 from flypac.engine.fake import FakeVecGame
 from flypac.engine.game import VecGame
@@ -93,7 +93,7 @@ class Runner:
         frame_odor, frame_phero = self.odor.c.copy(), phero_c.copy()
         alive = np.array([not v.frozen for v in views]) & running
         fly_act = self.ghosts.propose(obs, alive, views if self.pass_views else None)             # 6
-        ev2, executed, active = game.step_flies(fly_act)                  # 7
+        ev2, moved, committed, active = game.step_flies(fly_act)          # 7 (DECISIONS 4절의 표)
         released = np.zeros(B, dtype=bool)
         eaten = np.zeros((B, F), dtype=bool)
         for b in range(B):
@@ -107,7 +107,7 @@ class Runner:
         # 거르므로 순서를 바꿔도 비활성 결정은 흔적에 들어가지 않는다.
         if released.any():
             self.ghosts.on_release(released)  # 학습 활성은 게임 단위
-        self.ghosts.commit(executed, active)
+        self.ghosts.commit(committed, active)  # 확정된 결정만. 복도 · 집 출구 이동(moved만 참)은 넘기지 않는다
         if eaten.any():
             self.ghosts.on_eaten(eaten)
         timers = game.tick_timers()                                       # 9
@@ -176,6 +176,9 @@ class Runner:
         retired = over & ~more  # 모든 판을 끝낸 칸: 새 판은 시작하지 않고 학습 활성만 내린다
         self.finished |= retired
         self.game_no[more] += 1
+        bundle = getattr(self.ghosts, "rngs", None)
+        if isinstance(bundle, GameRngs):          # 새 판: (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2)
+            bundle.renew(more, self.game_no)
         self.game.retire(retired)
         self.game.reset_game(more)
         self.game.reset_life(ends & ~over)
@@ -214,6 +217,6 @@ def build_runner(cfg, recorder=None) -> Runner:
     pacman = RuleBasedPacman(amap, cfg, make_rng(seeds[0], 0, "pacman"))
     if cfg.ghosts.kind != "random":
         raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: flybrain(뇌 담당), original(B1)
-    ghosts = RandomGhost(cfg, B, make_rng(seeds[0], 0, "ghost"))
+    ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
     regime = make_regime(cfg)
     return Runner(cfg, amap, game, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())

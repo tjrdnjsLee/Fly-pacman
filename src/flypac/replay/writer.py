@@ -23,7 +23,11 @@ class ReplayBuffer:
         return len(self._cols.get("pac_cell", []))
 
     def add_frame(self, **fields) -> None:
-        """필드 이름은 schema.FIELDS의 이름 (사건과 메타데이터 제외). 모양은 틱 하나 분량."""
+        """필드 이름은 schema.FIELDS의 이름 (사건과 메타데이터 제외). 모양은 틱 하나 분량.
+
+        값은 **복사해서** 쌓는다. 호출한 쪽이 같은 배열을 제자리에서 고쳐도(냄새 장 갱신,
+        조종기의 목숨 초기화 등) 이미 쌓은 프레임은 바뀌지 않는다.
+        """
         expected = {f.name for f in s.FIELDS if f.group == "base" and f.name not in s.EVENT_FIELDS}
         if self.with_phero:
             expected.add("phero_field")
@@ -33,7 +37,7 @@ class ReplayBuffer:
             raise ValueError(f"필드가 맞지 않는다: 빠진 것 {sorted(expected - set(fields))}, "
                              f"넘친 것 {sorted(set(fields) - expected)}")
         for name, value in fields.items():
-            self._cols.setdefault(name, []).append(np.asarray(value))
+            self._cols.setdefault(name, []).append(np.array(value, copy=True))
 
     def add_event(self, tick: int, kind: str, fly: int) -> None:
         self._events.append((int(tick), s.KIND_CODES[str(kind)], int(fly)))

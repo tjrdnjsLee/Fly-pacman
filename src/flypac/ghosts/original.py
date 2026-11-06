@@ -19,7 +19,7 @@ class OriginalGhosts(GhostController):
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:
         raise NotImplementedError
 
-    def commit(self, executed: np.ndarray, active: np.ndarray) -> None:
+    def commit(self, committed: np.ndarray, active: np.ndarray) -> None:
         raise NotImplementedError
 
     def give_reward(self, R: np.ndarray) -> None:

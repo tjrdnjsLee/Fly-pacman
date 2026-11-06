@@ -16,7 +16,7 @@ class StubGame(Game):
         return [Event(Kind.DOT, 0, 0, -1, True)] * action
 
     def step_flies(self, actions):
-        return [], np.asarray(actions) >= 0, np.ones(4, bool)
+        return [], np.ones(4, bool), np.asarray(actions) >= 0, np.ones(4, bool)
 
     def decision_info(self):
         return np.ones((4, 4), bool), np.zeros(4, bool)
@@ -37,8 +37,8 @@ def test_vecgame_is_thin_wrapper_of_games():
     v = StubVec(3, None, None, rngs)
     assert len(v.games) == 3 and all(isinstance(g, StubGame) for g in v.games)
     assert [len(e) for e in v.step_pacman(np.array([0, 1, 2]))] == [0, 1, 2]
-    ev, ex, ac = v.step_flies(np.array([[0, -1, 1, 2]] * 3))
-    assert ex.shape == ac.shape == (3, 4) and not ex[0, 1]
+    ev, mv, cm, ac = v.step_flies(np.array([[0, -1, 1, 2]] * 3))
+    assert mv.shape == cm.shape == ac.shape == (3, 4) and not cm[0, 1] and mv[0, 1]
     legal, decide = v.decision_info()
     assert legal.shape == (3, 4, 4) and decide.shape == (3, 4)
 

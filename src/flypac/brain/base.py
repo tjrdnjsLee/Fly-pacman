@@ -15,6 +15,9 @@ from flypac.core.types import FlyObs, GameView
 class GhostController(ABC):
     # 실행기는 이 값이 참인 조종기(B1)에만 views를 넘긴다 (TRD 원칙 2)
     uses_views = False
+    # 난수를 쓰는 조종기는 칸별 생성기 묶음(core.rng.GameRngs)을 여기에 둔다. 실행기가 새 판을 시작할 때
+    # rngs.renew(mask, game_no)를 불러 (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2, DECISIONS 11절).
+    rngs = None
 
     @abstractmethod
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:
@@ -25,8 +28,13 @@ class GhostController(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def commit(self, executed: np.ndarray, active: np.ndarray) -> None:
-        """확정: 실제로 실행된 결정만 학습 갱신과 흔적에 반영 (TRD 10.4). executed, active: (B,F) bool."""
+    def commit(self, committed: np.ndarray, active: np.ndarray) -> None:
+        """확정: committed가 참인 결정만 흔적 · 학습 갱신 · 증거 초기화에 반영 (TRD 4.7, 10.4).
+
+        committed, active: (B,F) bool. committed는 엔진이 이번 틱의 제안을 결정으로 받아들였다는 뜻이며
+        '움직였다'(moved)와 다르다: 복도 · 집 출구 이동은 거짓, 지연 반전은 저장한 틱에 참.
+        committed가 거짓인 칸의 제안은 버린다 (증거 x는 그대로 둔다). 표: DECISIONS 4절.
+        """
         raise NotImplementedError
 
     @abstractmethod
