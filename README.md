@@ -79,6 +79,16 @@ uv run python scripts/run_experiment.py configs/m0_smoke.yaml
 uv run python -c "from flypac.replay.synth import write_synthetic; print(write_synthetic('runs/synth', T=300, brain=True))"
 ```
 
+### 회로 파일과 채널 배정 (뇌)
+
+원본 회로 `data/circuit/raw/mb_raw_v1.npz`와 해부 자료 `data/anatomy/mb_anatomy_v1.npz`는 hemibrain v1.2.1에서 한 번 뽑아 저장소에 넣어 두었다 (출처는 `NOTICE`, 결정은 `docs/DECISIONS.md` 10절). 채널 배정과 유효성 검사는 토큰 없이 누구나 다시 돌릴 수 있다.
+
+```bash
+uv run python scripts/assign_channels.py
+```
+
+`runs/assign/report_v1.md`에 시드 0 ~ 19의 표가 생긴다. 원본을 다시 뽑는 것(`scripts/extract_circuit.py`, `scripts/export_anatomy.py`)은 neuPrint 토큰이 필요한 뇌 담당의 일이다 (`uv run --extra extract ...`, 토큰은 `.env`의 `NEUPRINT_TOKEN`).
+
 ## 7. 폴더 소유권
 
 | 폴더 | 담당 | 비고 |

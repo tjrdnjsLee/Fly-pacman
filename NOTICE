@@ -10,8 +10,11 @@ This project includes or builds on the following third-party material.
    verbatim copy of pacman/engine/ in third_party/pacman_ai/engine/.
    No copyright line is reproduced here because the upstream repository states none.
 
-2. hemibrain connectome data (Janelia FlyEM)
-   Licensed under CC-BY 4.0. Attribution: "Scheffer et al. 2020, A connectome
-   and analysis of the adult Drosophila central brain, eLife."
+2. hemibrain connectome data (Janelia FlyEM), dataset hemibrain:v1.2.1
+   Source: Scheffer et al. 2020, eLife 9:e57443, "A connectome and analysis of
+   the adult Drosophila central brain". Retrieved from neuprint.janelia.org.
+   License: CC BY 4.0 (관리자 확인 후 확정).
+   Used in: data/circuit/raw/mb_raw_v1.npz (+ .meta.json) and
+   data/anatomy/mb_anatomy_v1.npz (+ .meta.json), derived from neuPrint queries.
    TODO(미결 13): confirm the exact attribution wording required by the
    dataset version used (TRD 3.3) before the poster.
