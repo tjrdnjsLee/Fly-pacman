@@ -1,0 +1,19 @@
+# 채널 배정 설정 (M1 뇌 작업 지시서 ① 6절). 이 파일은 관리자 소유다.
+# 시드 목록은 0 ~ 19로 고정한다. 결과를 본 뒤 바꾸지 않는다.
+raw: data/circuit/raw/mb_raw_v1.npz
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+
+# 분기: auto = 규칙 5 (6.4)의 전환 조건 1 · 2로 판정 (하나라도 참이면 G, 아니면 P).
+# 조건 3(표현력 시험)은 다음 지시서.
+branch: auto
+branch_p_max_ratio: 1.5            # 조건 2: 페로몬 채널 도달 KC 수 max/min 상한
+pheromone_glomeruli: [DA1, VA1v, VA1d, DL3]
+
+mbon_groups:                       # 규칙 2. 시드와 무관하게 한 번
+  seed: 0                          # 탐욕 배정 순서용 고정 시드
+  max_passes: 500                  # 맞바꾸기 국소 탐색 최대 횟수
+
+report:
+  path: runs/assign/report_v1.md
+  conjunction_reference: 0.235     # 동일 확률 · 독립 추출 모형의 참고값 (기록용)
+  low_kc_input: 20                 # 이보다 적은 선택 PN 입력을 받는 KC 수를 보고 (s_min 적용 뒤)
