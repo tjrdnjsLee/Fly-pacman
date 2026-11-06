@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from flypac.core import directions as d
 from flypac.core.events import Event
 from flypac.core.types import GameView
 from flypac.maps.original import MapSpec
@@ -18,7 +19,15 @@ class Game:
     index = 0  # 묶음 안의 게임 칸 번호. 사건의 `game` 값. VecGame이 정해 준다.
 
     def __init__(self, map: MapSpec, cfg, rng: np.random.Generator):
-        raise NotImplementedError
+        e = cfg.engine
+        self.map = map
+        self.rng = rng
+        self.lives_max = int(e.lives)
+        self.F = len(map.fly_starts)
+        self._house = np.zeros(map.nbr.shape[0], dtype=bool)
+        self._house[map.house_cells] = True
+        self._house[map.door_cells] = True
+        self.reset_game()
 
     def step_pacman(self, action: int) -> list[Event]:
         """팩맨 이동, 먹기, 충돌. 목숨이 끝나면 그 틱 동안 동결. action: 절대 방향."""
@@ -40,7 +49,28 @@ class Game:
 
     def view(self) -> GameView:
         """현재 상태의 읽기 전용 사본."""
-        raise NotImplementedError
+        return GameView(
+            pac_cell=self.pac_cell,
+            pac_dir=self.pac_dir,
+            lives=self.lives,
+            power=False,
+            power_ticks=0,
+            ghost_streak=0,
+            fly_cell=self.fly_cell.copy(),
+            fly_dir=self.fly_dir.copy(),
+            fly_z=np.zeros(self.F, dtype=bool),
+            fly_in_house=self._house[self.fly_cell].copy(),
+            dots=self.dots.copy(),
+            energizers=self.energizers.copy(),
+            fruit=False,
+            tick=self.tick,
+            score=self.score,
+            learning_active=self.learning_active,
+            elroy_stage=0,
+            frozen=self.frozen,
+            pac_acc=float(self.pac_acc),
+            fly_acc=self.fly_acc.copy(),
+        )
 
     def decision_info(self) -> tuple[np.ndarray, np.ndarray]:
         """(legal (F,4) bool, decide (F,) bool)."""
@@ -51,13 +81,28 @@ class Game:
 
         TRD 5.2에 없는 메서드다 (총책임자 결정, DECISIONS 3절). 실행기만 부른다.
         """
-        raise NotImplementedError
+        self.learning_active = False
 
     def reset_life(self) -> None:
-        raise NotImplementedError
+        m = self.map
+        self.pac_cell = int(m.pacman_start)
+        self.pac_dir = d.WEST
+        self.pac_acc = 0.0
+        self.fly_cell = m.fly_starts.astype(np.int64).copy()
+        self.fly_dir = np.array([d.WEST] + [d.NORTH] * (self.F - 1), dtype=np.int64)
+        self.fly_acc = np.zeros(self.F)
+        self.released = np.zeros(self.F, dtype=bool)
+        self.life_tick = 0
+        self.learning_active = False
+        self.frozen = False        
 
     def reset_game(self) -> None:
-        raise NotImplementedError
+        self.lives = self.lives_max
+        self.dots = self.map.dots.copy()
+        self.energizers = self.map.energizers.copy()
+        self.score = 0
+        self.tick = 0
+        self.reset_life()
 
 
 class VecGame:
