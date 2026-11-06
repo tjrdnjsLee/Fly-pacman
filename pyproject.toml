@@ -14,6 +14,8 @@ dependencies = [
 [project.optional-dependencies]
 pacman = ["torch"]
 viz = ["pygame", "imageio-ffmpeg", "matplotlib", "manim>=0.19"]
+# 회로 추출 (토큰 필요, 뇌 담당만). 기본 설치와 CI에는 들어가지 않는다.
+extract = ["neuprint-python==0.6.4"]
 
 [dependency-groups]
 dev = ["pytest"]

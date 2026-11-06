@@ -2,7 +2,7 @@
 
 초파리 버섯체 회로로 움직이는 유령 네 마리가 팩맨을 쫓는 시뮬레이션. 팀원 노트북은 개발과 테스트, 실험 머신은 팩맨 학습과 본 실험을 맡는다.
 
-PRD · TRD는 비공개 문서라 이 저장소에 없다 (하지만 지금은 넣어놓음 - 2026.11.05) (3. 참고). 인터페이스 세부는 [`docs/DECISIONS.md`](docs/DECISIONS.md)에 있다.
+PRD · TRD는 [`docs/PRD.md`](docs/PRD.md), [`docs/TRD.md`](docs/TRD.md)에 있다 (2026-11-06 공개 전환, 4. 참고). 인터페이스 세부는 [`docs/DECISIONS.md`](docs/DECISIONS.md)에 있다.
 
 ## 1. 설치
 
@@ -49,9 +49,11 @@ CSV 결과 파일은 UTF-8 BOM(`utf-8-sig`)으로 저장되어 엑셀에서 한�
 - `nvidia-smi`의 CUDA 버전이 12.8 이상인지 확인한다. torch 설치 방법(uv 선택 의존성 또는 인덱스 지정)은 관리자가 `pyproject.toml`에 정한다.
 - 실험 머신: Ryzen 7 7800X3D, 32 GiB, RTX 5070, Ubuntu 26.04. 포스터에 들어갈 결과는 실험 머신에서 돌린 것만 쓴다.
 
-## 4. docs 폴더에 문서 넣기
+## 4. docs 폴더와 작업 지시서
 
-PRD · TRD는 저장소에 없다. 팀에서 받은 `PRD.md`(첫 줄 v1.1), `TRD.md`(첫 줄 v0.5)를 `docs/`에 복사해 쓴다. **절대 커밋하지 않는다.** `.gitignore`가 막아 주지만, `git add .`나 `git add -A`를 쓰지 말고 파일을 지정해서 add하는 습관을 들인다. 테스트와 CI는 `docs/`의 이 파일들에 의존하지 않는다.
+PRD · TRD는 저장소의 `docs/`에 있다 (`PRD.md` 첫 줄 v1.1, `TRD.md` 첫 줄 v0.5). 관리자가 팀 공유를 위해 올렸고 공개 문서다 (DECISIONS 9절). PRD · TRD는 관리자만 고친다. `docs/DECISIONS.md`에는 각 담당이 PR로 결정을 추가하고, 관리자가 승인한다.
+
+작업 지시서(`*_TASK.md`)는 비공개다. 받은 지시서는 저장소 루트에 두고 **절대 커밋하지 않는다.** `.gitignore`가 막아 주지만, `git add .`나 `git add -A`를 쓰지 말고 파일을 지정해서 add하는 습관을 들인다. 테스트와 CI는 `docs/`의 PRD · TRD에 의존하지 않는다.
 
 ## 5. Git 다섯 동작 (GitHub Desktop)
 
@@ -78,6 +80,16 @@ uv run python scripts/run_experiment.py configs/m0_smoke.yaml
 ```bash
 uv run python -c "from flypac.replay.synth import write_synthetic; print(write_synthetic('runs/synth', T=300, brain=True))"
 ```
+
+### 회로 파일과 채널 배정 (뇌)
+
+원본 회로 `data/circuit/raw/mb_raw_v1.npz`와 해부 자료 `data/anatomy/mb_anatomy_v1.npz`는 hemibrain v1.2.1에서 한 번 뽑아 저장소에 넣어 두었다 (출처는 `NOTICE`, 결정은 `docs/DECISIONS.md` 10절). 채널 배정과 유효성 검사는 토큰 없이 누구나 다시 돌릴 수 있다.
+
+```bash
+uv run python scripts/assign_channels.py
+```
+
+`runs/assign/report_v1.md`에 시드 0 ~ 19의 표가 생긴다. 원본을 다시 뽑는 것(`scripts/extract_circuit.py`, `scripts/export_anatomy.py`)은 neuPrint 토큰이 필요한 뇌 담당의 일이다 (`uv run --extra extract ...`, 토큰은 `.env`의 `NEUPRINT_TOKEN`).
 
 ## 7. 폴더 소유권
 
