@@ -15,7 +15,7 @@ rois:
   midline: "EB"                                           # 정중선 기준 (해부 확인 시험)
 
 thresholds:
-  s_min: 3                       # 연결당 최소 시냅스 수. 미만은 0 (4.1의 6번, 마지막에 적용)
+  s_min: 3                       # 연결당 최소 시냅스 수. 미만은 0. 맨 먼저 적용하고, 아래 문턱은 정리된 수로 계산 (DECISIONS 10.6)
   theta_pn: 50                   # PN의 본 칼릭스 → 후보 KC 시냅스 합 최솟값
   theta_kc: 0.8                  # KC의 본 칼릭스 PN 계열 입력 중 선택 PN 비율 최솟값 (정의 A)
   kc_min_selected_pn_input: 20   # KC가 선택 PN에서 받는 본 칼릭스 시냅스 최솟값 (새 기준)
