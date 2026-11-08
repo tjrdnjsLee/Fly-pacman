@@ -51,6 +51,10 @@ class Game:
         e = cfg.engine
         self.map = map
         self.lives_max = int(e.lives)
+        self.v_pac = float(e.pacman_speed)
+        self.v_fly = float(e.fly_speed)
+        if not (0 <= self.v_pac <= 1 and 0 <= self.v_fly <= 1):
+            raise ValueError("속도는 0 이상 1 이하여야 한다 (TRD 7.2)")
         self.F = len(map.fly_starts)
         self._house = np.zeros(map.nbr.shape[0], dtype=bool)
         self._house[map.house_cells] = True
@@ -59,7 +63,20 @@ class Game:
 
     def step_pacman(self, action: int) -> list[Event]:
         """팩맨 이동, 먹기, 충돌. 목숨이 끝나면 그 틱 동안 동결. action: 절대 방향."""
-        raise NotImplementedError
+        if self.frozen:
+            return []
+        if 0 <= action < len(d.ABS_NAMES):
+            self.pac_requested_dir = int(action)
+        self.pac_acc, will_move = advance_accumulator(self.pac_acc, self.v_pac)
+        if not will_move:
+            return []
+        legal = self.map.move_mask["pacman"][self.pac_cell]
+        if legal[self.pac_requested_dir]:
+            self.pac_dir = self.pac_requested_dir
+        if not legal[self.pac_dir]:
+            return []
+        self.pac_cell = int(self.map.nbr[self.pac_cell, self.pac_dir])
+        return []
 
     def step_flies(self, actions: np.ndarray) -> tuple[list[Event], np.ndarray, np.ndarray, np.ndarray]:
         """동결이 아니면 초파리 1→4번 이동, 매번 충돌. actions (F,) 자기중심 행동, -1은 유일한 경로.
@@ -120,6 +137,7 @@ class Game:
         m = self.map
         self.pac_cell = int(m.pacman_start)
         self.pac_dir = d.WEST
+        self.pac_requested_dir = self.pac_dir
         self.pac_acc = 0.0
         self.fly_cell = m.fly_starts.astype(np.int64).copy()
         self.fly_dir = np.array([d.WEST] + [d.NORTH] * (self.F - 1), dtype=np.int64)
