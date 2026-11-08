@@ -14,6 +14,8 @@ from test_engine_real import SMOKE
 def new_game(**engine):
     cfg = load_config(SMOKE).to_dict()
     cfg['engine'].update(engine)
+    # 이동만 보는 시험은 점 감속을 끈다. 감속 시험은 별도 값을 명시한다.
+    cfg['engine']['pacman_dot_speed'] = engine.get('pacman_dot_speed', cfg['engine']['pacman_speed'])
     game = Game(MAP, Config(cfg), make_rng(9, 0, 'engine'))
     game.reset_game(make_rng(9, 1, 'engine'))
     # 다른 곳에 점을 남겨 이동 시험 도중 클리어를 막는다.
@@ -71,3 +73,49 @@ def test_frozen_pacman_keeps_position_direction_and_accumulator():
     before = (game.pac_cell, game.pac_dir, game.pac_acc)
     assert game.step_pacman(d.SOUTH) == []
     assert (game.pac_cell, game.pac_dir, game.pac_acc) == before
+
+
+def test_dot_event_score_and_single_consumption():
+    from flypac.core.events import Kind
+    game = new_game(pacman_speed=1, pacman_dot_speed=1)
+    target = cell(1, 2)
+    game.dots[target] = True
+    game.index, game.tick, game.learning_active = 2, 7, True
+    events = game.step_pacman(d.EAST)
+    assert [event.kind for event in events] == [Kind.DOT]
+    assert (events[0].game, events[0].tick, events[0].active) == (2, 7, True)
+    assert game.score == 10 and not game.dots[target]
+    game.step_pacman(d.WEST)
+    assert game.step_pacman(d.EAST) == [] and game.score == 10
+
+
+def test_energizer_score_without_three_frame_pause():
+    from flypac.core.events import Kind
+    game = new_game(pacman_speed=1)
+    game.energizers[cell(1, 2)] = True
+    events = game.step_pacman(d.EAST)
+    assert [event.kind for event in events] == [Kind.ENERGIZER]
+    assert game.score == 50 and not game.energizers[cell(1, 2)]
+    assert game.pac_acc == 0
+    game.step_pacman(d.EAST)
+    assert game.pac_cell == cell(1, 3)
+
+
+def test_pellet_slowdown_through_actual_movement():
+    game = new_game(pacman_speed=0.8, pacman_dot_speed=0.71)
+    moves = 0
+    for _ in range(10000):
+        before = game.pac_cell
+        target = cell(1, 2) if before == cell(1, 1) else cell(1, 1)
+        game.dots[target] = True
+        game.step_pacman(d.EAST if before == cell(1, 1) else d.WEST)
+        moves += game.pac_cell != before
+    assert abs(moves / 10000 - 0.71) < 0.0002
+    assert game.score == moves * 10
+
+
+def test_no_pickup_when_accumulator_is_not_ready():
+    game = new_game(pacman_speed=0.4, pacman_dot_speed=0.4)
+    game.dots[cell(1, 2)] = True
+    assert game.step_pacman(d.EAST) == []
+    assert game.score == 0 and game.dots[cell(1, 2)]

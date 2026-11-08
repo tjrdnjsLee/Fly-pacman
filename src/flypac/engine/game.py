@@ -28,7 +28,7 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core import directions as d
-from flypac.core.events import Event
+from flypac.core.events import Event, Kind
 from flypac.core.types import GameView
 from flypac.maps.original import MapSpec
 
@@ -53,8 +53,13 @@ class Game:
         self.lives_max = int(e.lives)
         self.v_pac = float(e.pacman_speed)
         self.v_fly = float(e.fly_speed)
+        self.v_dot = float(e.get("pacman_dot_speed", self.v_pac))
+        self.score_dot = int(e.score_dot)
+        self.score_energizer = int(e.score_energizer)
         if not (0 <= self.v_pac <= 1 and 0 <= self.v_fly <= 1):
             raise ValueError("속도는 0 이상 1 이하여야 한다 (TRD 7.2)")
+        if not 0 <= self.v_dot <= self.v_pac or (self.v_pac > 0 and self.v_dot == 0):
+            raise ValueError("점 이동 속도는 양수이고 평소 속도 이하여야 한다")
         self.F = len(map.fly_starts)
         self._house = np.zeros(map.nbr.shape[0], dtype=bool)
         self._house[map.house_cells] = True
@@ -76,7 +81,21 @@ class Game:
         if not legal[self.pac_dir]:
             return []
         self.pac_cell = int(self.map.nbr[self.pac_cell, self.pac_dir])
-        return []
+        events: list[Event] = []
+        if self.dots[self.pac_cell]:
+            self.dots[self.pac_cell] = False
+            self.score += self.score_dot
+            self.pac_acc -= self.v_pac / self.v_dot - 1
+            events.append(self._ev(Kind.DOT))
+        elif self.energizers[self.pac_cell]:
+            self.energizers[self.pac_cell] = False
+            self.score += self.score_energizer
+            events.append(self._ev(Kind.ENERGIZER))
+            # 겁먹음 · z 전환 · 연속 사냥 초기화는 단계 7에서 구현한다.
+        return events
+
+    def _ev(self, kind: Kind, fly: int = -1, cause=None) -> Event:
+        return Event(kind, self.index, self.tick, fly, self.learning_active, cause)
 
     def step_flies(self, actions: np.ndarray) -> tuple[list[Event], np.ndarray, np.ndarray, np.ndarray]:
         """동결이 아니면 초파리 1→4번 이동, 매번 충돌. actions (F,) 자기중심 행동, -1은 유일한 경로.
