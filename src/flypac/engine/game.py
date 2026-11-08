@@ -11,6 +11,16 @@
 - reset_life는 난수를 바꾸지 않는다 (목숨이 바뀌어도 그 판의 난수열은 이어진다).
 - 생성자의 rng는 TRD 5.2 모양 때문에 남은 자리다. 실행기가 곧바로 reset_game(rng)를 부르므로
   엔진은 생성자의 rng로 난수를 뽑지 않는다.
+
+겁먹는 시간 (관리자 승인, DECISIONS 14.3절):
+- 설정 `engine.power_s`(초)를 `core.timing.config_ticks(cfg, power_s)`로 틱으로 바꿔 쓴다. 엔진이 따로 변환하지
+  않는다. PPO 팩맨 관측의 파워 분모(`pacman/obs.py`)가 같은 함수를 쓰므로, 엔진이 다른 값을 쓰면 관측이 어긋난다.
+
+`GameView.ghost_streak` 계약 (PPO 팩맨의 먹힘 보상 순번이 이 값에서 나온다, DECISIONS 14.3절):
+- 파워 쿠키를 먹어 파워가 시작될 때 0으로 돌아가고, 초파리를 먹을 때마다 1씩 오른다. 파워가 끝나도 지우지 않는다
+  (다음 파워 시작까지 그대로).
+- 따라서 매 틱 `view.ghost_streak − (그 틱의 EATEN 사건 수) ≥ 0`이고, 그 틱의 k번째(0부터) EATEN의 순번은
+  `ghost_streak − (EATEN 수) + k`이다. 위반하면 학습 환경이 멈춘다.
 """
 
 from __future__ import annotations
