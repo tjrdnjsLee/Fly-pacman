@@ -208,6 +208,8 @@ class FakeGame(Game):
     def tick_timers(self) -> list[Event]:
         events: list[Event] = []
         if self.frozen:
+            # 동결된 틱도 틱이다: 번호는 올린다 (틱 번호의 주인은 실행기, 엔진은 같은 번호를 따른다. DECISIONS 8절)
+            self.tick += 1
             return events
         self.life_tick += 1
         if self.tick + 1 >= self.watchdog:  # 감시 장치 (TRD 7.3, 6.2)

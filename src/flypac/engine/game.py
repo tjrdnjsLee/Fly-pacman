@@ -35,7 +35,11 @@ class Game:
         raise NotImplementedError
 
     def tick_timers(self) -> list[Event]:
-        """동결이 아니면 파워 · 과일 · 유령 집 · 엘로이."""
+        """동결이 아니면 파워 · 과일 · 유령 집 · 엘로이. 틱 번호(view.tick)는 동결된 틱에도 1 올린다.
+
+        틱 번호의 주인은 실행기다: 사건의 틱 번호는 실행기가 다시 쓰고, view.tick이 실행기 번호와 다르면
+        실행기가 멈춘다 (DECISIONS 8절).
+        """
         raise NotImplementedError
 
     def view(self) -> GameView:
