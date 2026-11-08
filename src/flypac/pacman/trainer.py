@@ -254,11 +254,12 @@ class Trainer:
         mean_ret = float(np.mean([g["return"] for g in rec])) if rec else float("nan")
         mean_score = float(np.mean([g["score"] for g in rec])) if rec else float("nan")
         win = float(np.mean([g["winner"] == "PACMAN" for g in rec])) if rec else float("nan")
+        cens = sum(g["winner"] == "CENSORED" for g in rec)  # 학습 로그의 승률 분모에는 중단 판이 들어 있다 (평가 로그와 다르다)
         eta = (total - self.update) * (self._sec_per_update or dt)
         self._say(f"[갱신 {u}/{total}] 단계 {self.phase} | 스텝/초 {sps:,.0f} | 판 평균 보상 {mean_ret:.1f} "
-                  f"점수 {mean_score:.0f} 승률 {win:.0%} (최근 {len(rec)}판) | 남은 시간 {_fmt_eta(eta)}")
+                  f"점수 {mean_score:.0f} 승률 {win:.0%} (중단 포함 분모, 최근 {len(rec)}판 중 중단 {cens}) | 남은 시간 {_fmt_eta(eta)}")
         self._csv({"update": u, "phase": self.phase, "steps_per_sec": round(sps, 1), "sec": round(dt, 3),
-                   "mean_return": mean_ret, "mean_score": mean_score, "win_rate": win, "games": len(rec),
+                   "mean_return": mean_ret, "mean_score": mean_score, "win_rate": win, "games": len(rec), "censored": cens,
                    "policy_loss": m["policy_loss"], "value_loss": m["value_loss"], "entropy": m["entropy"],
                    "rnd_loss": m.get("rnd_loss", float("nan")),
                    "lr": self.ppo.optimizer.param_groups[0]["lr"], "entropy_coef": self.ppo.entropy_coef})

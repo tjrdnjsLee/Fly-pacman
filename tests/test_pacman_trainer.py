@@ -67,6 +67,7 @@ def test_trains_and_logs(tmp_path):
     assert tr.update == 6
     log = (tmp_path / "train_log.csv").read_text(encoding="utf-8-sig").splitlines()
     assert log[0].startswith("update,phase,steps_per_sec") and len(log) == 7
+    assert "censored" in log[0].split(",")
     assert "커리큘럼 단계 1" in (tmp_path / "train_log.txt").read_text(encoding="utf-8")
     ev = csv_rows(tmp_path / "eval_log.csv")
     assert list(ev[0]) == ["update", "ghosts", "games", "censored", "unfinished", "win_rate", "mean_score"]

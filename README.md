@@ -106,7 +106,7 @@ uv run --extra pacman python scripts/train_pacman.py --config configs/pacman_tra
 ```
 
 - **시작 검사:** 학습에 쓸 모든 부품(엔진 숫자, 엔진, 단계별 유령, 평가 상대)을 먼저 만들어 보고, 모자라면 무엇이 없는지 모두 적고 시작하지 않는다 (종료 코드 3). 커리큘럼 단계마다 `condition`(유령이 views를 쓰면 `b1`)을 설정에 직접 적는다.
-- **진행:** 갱신마다 한 줄(갱신 번호, 초당 스텝, 판 평균 보상 · 점수 · 승률, 남은 시간)이 화면과 `runs/<run_dir>/train_log.txt`, `train_log.csv`에 남는다. 평가(원작 점수 · 승률, 중단(CENSORED) 판은 승률에서 빼고 따로 센다)는 `eval_log.csv`.
+- **진행:** 갱신마다 한 줄(갱신 번호, 초당 스텝, 판 평균 보상 · 점수 · 승률, 남은 시간)이 화면과 `runs/<run_dir>/train_log.txt`, `train_log.csv`에 남는다. 평가(원작 점수 · 승률, 중단(CENSORED) 판은 승률에서 빼고 따로 센다)는 `eval_log.csv`. **두 로그의 승률 정의가 다르다:** `train_log.csv`의 `win_rate`는 중단 판을 분모에 포함하고(`censored` 열에 중단 수), `eval_log.csv`의 `win_rate`는 중단 판을 뺀다.
 - **일정과 멈출 지점:** 학습 일정의 총 길이는 설정의 `training.total_updates`이고 체크포인트와 설정 해시에 들어간다. 이번 실행만 중간에서 멈추려면 `--stop-at 400`을 붙인다 (일정은 바뀌지 않는다).
 - **중단:** Ctrl+C를 한 번 누르면 이번 갱신을 마치고 `checkpoints/latest.pt`에 저장한 뒤 끝난다 (두 번 누르면 저장 없이 끝).
 - **재개:** 같은 명령에 `--resume runs/<run_dir>`을 붙인다. 갱신 번호 · 난수 · 게임 상태까지 이어진다. 학습 설정(총 갱신 수 포함)이 저장 때와 다르면 멈춘다 (기록 주기 · 장치 · 경로는 바꿔도 된다). 이미 체크포인트가 있는데 `--resume` 없이 시작하면 덮어쓰지 않고 멈춘다.
