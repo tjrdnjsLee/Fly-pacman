@@ -1,0 +1,83 @@
+# PPO 팩맨 학습 (TRD 12.2, 12.3). 팩맨 담당 추가 파일. 실행:
+#   uv run --extra pacman python scripts/train_pacman.py --config configs/pacman_train_v1.yaml
+# 학습 값(ppo, network, rnd, rewards)은 원 저장소 pacman-ai `pacman/config/default.yaml`과 같다.
+# TODO(M1): 진짜 엔진 · B1이 병합되면 engine.kind를 real로, 엔진 값을 m0_smoke.yaml과 맞춘다.
+experiment: pacman_train_v1
+
+engine: {kind: fake, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,
+         watchdog_ticks: 20000}
+time:   {v_max_tiles_per_s: 9.47}
+
+pacman_train:
+  seed: 0
+  num_envs: 128             # B: 나란히 도는 게임 수
+  device: auto              # auto | cpu | cuda
+  run_dir: runs/pacman_train_v1   # 결과 · 체크포인트 폴더 (runs/는 저장소에 올라가지 않는다)
+
+  obs:
+    frame_stack: 4
+    power_ticks_max: 57     # 겁먹음 틱 수 (스칼라 0번 정규화). TODO(M1): 진짜 엔진 값과 맞춘다
+    mask_reverse: true      # 원 저장소의 학습용 반전 금지 마스크
+
+  # 커리큘럼: from_update부터 그 유령을 상대한다. 단계가 바뀌면 모든 게임을 새로 시작한다.
+  # 원 저장소는 유령 AI 난이도 0 → 1 → 2였다. B1에는 난이도가 없어 무작위 유령 → B1로 둔다 (조장 확인 필요)
+  curriculum:
+    - {from_update: 0, ghosts: random}
+    - {from_update: 800, ghosts: original}
+  entropy_boost_updates: 300   # 단계 전환 뒤 엔트로피 계수를 올리는 갱신 수 (원 저장소 값)
+
+  network:
+    cnn_channels: [64, 128, 128]
+    cnn_kernels: [3, 3, 3]
+    cnn_strides: [1, 2, 2]
+    shared_hidden: 512
+    head_hidden: 256
+
+  rnd:
+    enabled: true
+    hidden_size: 256
+    output_size: 128
+    learning_rate: 1.0e-4
+    intrinsic_coef: 0.1
+    update_proportion: 0.25
+    min_samples: 64
+    clip: 5.0
+
+  ppo:
+    rollout_steps: 128
+    num_epochs: 4
+    minibatch_size: 2048
+    learning_rate: 2.5e-4
+    adam_eps: 1.0e-5
+    lr_anneal: true
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_epsilon: 0.2
+    value_loss_coef: 0.5
+    entropy_coef_start: 0.15
+    entropy_coef_end: 0.01
+    entropy_anneal_fraction: 0.7
+    max_grad_norm: 0.5
+    reward_norm_clip: 10.0
+
+  rewards:
+    eat_pellet: 1.0
+    eat_power_pellet: 2.0
+    eat_ghost: [5.0, 10.0, 15.0, 20.0]
+    eat_fruit: 3.0
+    clear_level: 50.0
+    death: -10.0
+    game_over: -25.0
+    ghost_proximity: -0.3
+    ghost_proximity_dist: 2
+    time_step: -0.01
+
+  training:
+    total_updates: 8000
+    log_every: 1            # 진행 한 줄 출력 주기 (갱신)
+    eval_every: 50
+    eval_games: 20          # 평가: 마지막 단계 유령 상대로 탐욕 행동, 원작 점수 · 승률
+    eval_max_ticks: 20000
+    checkpoint_every: 50
+    keep_checkpoints: 3     # 최근 몇 개만 남긴다 (latest · best는 따로)
