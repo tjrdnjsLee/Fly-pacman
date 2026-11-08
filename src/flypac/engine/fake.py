@@ -42,10 +42,15 @@ class FakeGame(Game):
         self._house = np.zeros(map.nbr.shape[0], dtype=bool)
         self._house[map.house_cells] = True
         self._house[map.door_cells] = True
-        self.reset_game()
+        self._new_game()
 
     # ---- 초기화 (실행기만 부른다) ----
-    def reset_game(self) -> None:
+    def reset_game(self, rng: np.random.Generator) -> None:
+        """새 판. 엔진 난수를 이 판의 생성기로 바꾼다 (engine/game.py의 난수 계약). 가짜 엔진은 난수를 쓰지 않는다."""
+        self.rng = rng
+        self._new_game()
+
+    def _new_game(self) -> None:
         self.lives = self.lives_max
         self.dots = self.map.dots.copy()
         self.energizers = self.map.energizers.copy()
@@ -208,6 +213,8 @@ class FakeGame(Game):
     def tick_timers(self) -> list[Event]:
         events: list[Event] = []
         if self.frozen:
+            # 동결된 틱도 틱이다: 번호는 올린다 (틱 번호의 주인은 실행기, 엔진은 같은 번호를 따른다. DECISIONS 8절)
+            self.tick += 1
             return events
         self.life_tick += 1
         if self.tick + 1 >= self.watchdog:  # 감시 장치 (TRD 7.3, 6.2)

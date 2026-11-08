@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.brain.base import GhostController
+from flypac.core.rng import GameRngs
 from flypac.core.types import FlyObs, GameView
 
 
@@ -13,7 +14,9 @@ class OriginalGhosts(GhostController):
 
     uses_views = True
 
-    def __init__(self, cfg, B: int, rng: np.random.Generator):
+    def __init__(self, cfg, B: int, rngs: GameRngs):
+        """rngs: 칸별 생성기 묶음 (core.rng.game_rngs(seeds, "ghost")). 칸 b는 rngs[b]만 쓰고, 이 묶음을 `self.rngs`로
+        둔다: 판 시작 때 TickCore가 (시드, 판 번호, 용도)로 다시 만든다 (DECISIONS 11절)."""
         raise NotImplementedError
 
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:

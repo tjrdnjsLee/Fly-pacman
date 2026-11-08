@@ -21,9 +21,10 @@ class GhostController(ABC):
 
     @abstractmethod
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:
-        """제안: 자기중심 행동과 그 확률 π를 계산해 보관. 상태는 바꾸지 않음.
+        """제안 (TRD 5.5를 고침, DECISIONS 12.1): 틱당 한 번 감각 증거(x, h)를 누적하고, 결정 시점이면
+        (π, a*, L)를 보관한다. 학습 상태(w, e, R̄, R_n)는 바꾸지 않는다. 같은 틱의 중복 호출은 오류다.
 
-        alive (B,) bool. 동결된 게임(alive=거짓)은 -1. 반환 (B,F) int.
+        alive (B,) bool. 동결된 게임(alive=거짓)은 아무것도 갱신하지 않고 -1. 반환 (B,F) int.
         """
         raise NotImplementedError
 

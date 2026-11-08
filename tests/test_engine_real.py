@@ -23,7 +23,9 @@ SMOKE = Path(__file__).resolve().parents[1] / "configs" / "m0_smoke.yaml"
 
 
 def _make(cls):
-    return cls(load_original(), load_config(SMOKE), make_rng(0, 0, "engine"))
+    game = cls(load_original(), load_config(SMOKE), make_rng(0, 0, "engine"))
+    game.reset_game(make_rng(0, 1, "engine"))
+    return game
 
 
 @pytest.fixture
@@ -85,7 +87,7 @@ def test_reset_life_restores_positions_and_keeps_progress(game):
 def test_reset_game_restores_everything(game):
     """판 초기화: 새 게임과 같은 상태로 돌아간다."""
     _dirty(game)
-    game.reset_game()
+    game.reset_game(make_rng(0, 2, "engine"))
     want, got = _make(FakeGame).view(), game.view()
     for f in dataclasses.fields(want):
         a, b = getattr(want, f.name), getattr(got, f.name)

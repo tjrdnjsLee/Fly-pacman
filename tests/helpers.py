@@ -20,7 +20,8 @@ BASE = {
     "n_games": 2,
     "engine": {"kind": "fake", "lives": 3, "pacman_speed": 1.0, "fly_speed": 1.0,
                "release_ticks": [0, 10, 20, 30], "score_dot": 10, "score_energizer": 50,
-               "watchdog_ticks": 20000},
+               "watchdog_ticks": 20000, "power_s": 6},
+    "time": {"v_max_tiles_per_s": 9.47},
     "odor": {"D": 1.0, "lam": 0.05, "s": 1.0, "c0": 0.01, "reset_on_life_loss": True},
     "phero": {"D": 1.0, "lam": 0.1},
     "reward": {"p": 0.25, "q": 1.0},
@@ -140,10 +141,10 @@ def share_journal(runner, recorder):
     for name in ("retire", "reset_life", "reset_game"):
         original = getattr(runner.game, name)
 
-        def wrapped(mask, _name=name, _original=original):
+        def wrapped(mask, *args, _name=name, _original=original):
             if np.any(mask):
                 journal.append((f"game_{_name}", np.array(mask).copy()))
-            return _original(mask)
+            return _original(mask, *args)
 
         setattr(runner.game, name, wrapped)
     return journal

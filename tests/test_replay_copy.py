@@ -19,7 +19,7 @@ def _frame(odor, action):
     return dict(pac_cell=0, pac_dir=0, pac_acc=0.0, fly_cell=np.zeros(F, int), fly_dir=np.zeros(F, int),
                 fly_acc=np.zeros(F), fly_z=np.zeros(F, bool), fly_in_house=np.zeros(F, bool), lives=3,
                 power_ticks=0, score=0, fruit=0, odor_field=odor, sense=np.zeros((F, 4, 2)),
-                action=action, pi=np.zeros((F, 4)))
+                action=action, pi=np.zeros((F, 4)), committed=np.zeros(F, bool), moved=np.zeros(F, bool))
 
 
 def test_buffer_keeps_values_when_source_changes_in_place():
@@ -85,6 +85,7 @@ def test_capture_tick_action_is_preserved_in_replay(tmp_path):
     rec = Recorder(tmp_path / "run", cfg)
     r = build_runner(cfg, rec)
     r.ghosts = FirstLegal(cfg, r.B, r.ghosts.rngs)
+    r._reset_all()  # 판 1 시작(reset_game(rng)) 뒤에 장면을 놓는다
     g = r.game.games[0]
     g.released[:] = [True, False, False, False]
     found = False
@@ -100,7 +101,9 @@ def test_capture_tick_action_is_preserved_in_replay(tmp_path):
     assert found
     ego = int(np.flatnonzero(legal[0, 0])[0])
     g.pac_cell = int(MAP.nbr[J, int(d.ego_to_abs(h, ego))])
-    r.run()
+    while not r.finished.all():
+        r.tick()
+    rec.close()
     meta, arr = read_replay(tmp_path / "run" / "replay" / "regime1_s0_g1.npz")
     assert 0 in arr["ev_kind"].tolist()                # CATCH (코드 0)
     assert arr["ev_tick"][arr["ev_kind"] == 0][0] == 0  # 첫 틱에 포획 (판은 계속)

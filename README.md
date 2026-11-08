@@ -91,6 +91,28 @@ uv run python scripts/assign_channels.py
 
 `runs/assign/report_v1.md`에 시드 0 ~ 19의 표가 생긴다. 원본을 다시 뽑는 것(`scripts/extract_circuit.py`, `scripts/export_anatomy.py`)은 neuPrint 토큰이 필요한 뇌 담당의 일이다 (`uv run --extra extract ...`, 토큰은 `.env`의 `NEUPRINT_TOKEN`).
 
+### PPO 팩맨 학습 (실험 머신)
+
+torch가 필요하다 (`--extra pacman`). 명령 하나로 시작하고, 대화형 입력은 없다. 설정은 둘이다.
+
+| 설정 | 용도 |
+|---|---|
+| `configs/pacman_train_smoke.yaml` | 연기 시험용: 가짜 엔진 · 무작위 유령, 평가도 무작위 유령. 코드가 끝까지 도는지만 본다 |
+| `configs/pacman_train_v1.yaml` | 본 학습용: 진짜 엔진 · 무작위 → 원작 유령(B1), 평가는 원작 유령. 진짜 엔진 · B1이 병합되기 전에는 시작 검사에서 멈춘다 |
+
+```bash
+uv run --extra pacman python scripts/train_pacman.py --config configs/pacman_train_smoke.yaml
+uv run --extra pacman python scripts/train_pacman.py --config configs/pacman_train_v1.yaml
+```
+
+- **시작 검사:** 학습에 쓸 모든 부품(엔진 숫자, 엔진, 단계별 유령, 평가 상대)을 먼저 만들어 보고, 모자라면 무엇이 없는지 모두 적고 시작하지 않는다 (종료 코드 3). 커리큘럼 단계마다 `condition`(유령이 views를 쓰면 `b1`)을 설정에 직접 적는다.
+- **진행:** 갱신마다 한 줄(갱신 번호, 초당 스텝, 판 평균 보상 · 점수 · 승률, 남은 시간)이 화면과 `runs/<run_dir>/train_log.txt`, `train_log.csv`에 남는다. 평가(원작 점수 · 승률, 중단(CENSORED) 판은 승률에서 빼고 따로 센다)는 `eval_log.csv`. **두 로그의 승률 정의가 다르다:** `train_log.csv`의 `win_rate`는 중단 판을 분모에 포함하고(`censored` 열에 중단 수), `eval_log.csv`의 `win_rate`는 중단 판을 뺀다.
+- **일정과 멈출 지점:** 학습 일정의 총 길이는 설정의 `training.total_updates`이고 체크포인트와 설정 해시에 들어간다. 이번 실행만 중간에서 멈추려면 `--stop-at 400`을 붙인다 (일정은 바뀌지 않는다).
+- **중단:** Ctrl+C를 한 번 누르면 이번 갱신을 마치고 `checkpoints/latest.pt`에 저장한 뒤 끝난다 (두 번 누르면 저장 없이 끝).
+- **재개:** 같은 명령에 `--resume runs/<run_dir>`을 붙인다. 갱신 번호 · 난수 · 게임 상태까지 이어진다. 학습 설정(총 갱신 수 포함)이 저장 때와 다르면 멈춘다 (기록 주기 · 장치 · 경로는 바꿔도 된다). 이미 체크포인트가 있는데 `--resume` 없이 시작하면 덮어쓰지 않고 멈춘다.
+- **실험에서 쓰기:** 실험 설정에 `pacman: {kind: ppo, checkpoint: <.pt>, device: cpu, eps: 0.0}`을 적고 `scripts/run_experiment.py`로 돌린다. 실험 설정의 `engine.power_s` · `engine.lives`가 체크포인트에 기록된 값과 다르면 시작 때 멈춘다.
+- **속도 실측:** `uv run --extra pacman python scripts/bench_pacman.py --config configs/pacman_train_v1.yaml`
+
 ## 7. 폴더 소유권
 
 | 폴더 | 담당 | 비고 |

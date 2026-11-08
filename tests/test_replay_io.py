@@ -86,3 +86,44 @@ def test_buffer_checks_fields_and_event_codes():
     assert buf._events == [(3, 0, 2), (3, 5, -1)]
     with pytest.raises(ValueError):
         buf.arrays("{}")  # 프레임 없음
+
+
+# ---- 형식 버전 3 (committed, moved 추가) · 버전 2 읽기 (M1 뇌 ②, DECISIONS 6절) ----
+
+def _as_version2(a: dict) -> dict:
+    """버전 3 배열에서 버전 3 필드를 빼고 메타데이터를 버전 2로 바꾼다 (옛 파일 흉내)."""
+    old = {k: v for k, v in a.items() if k not in ("committed", "moved")}
+    meta = s.parse_meta(a[s.META_KEY])
+    meta["format_version"] = 2
+    import json
+    old[s.META_KEY] = np.array(json.dumps(meta, ensure_ascii=False))
+    return old
+
+
+def test_version3_has_committed_and_moved():
+    a = make_synthetic_arrays(T=40, seed=1)
+    assert s.FORMAT_VERSION == 3 and s.validate(a)["format_version"] == 3
+    assert a["committed"].shape == a["moved"].shape == (40, 4) and a["committed"].dtype == bool
+    assert (a["action"][a["committed"]] >= 0).all()  # 확정이면 행동 ≥ 0
+    assert a["committed"].any() and (a["moved"] & ~a["committed"]).any()
+
+
+@pytest.mark.parametrize("brain", [False, True])
+def test_reader_accepts_version2_file(tmp_path, brain):
+    old = _as_version2(make_synthetic_arrays(T=30, seed=2, brain=brain))
+    path = tmp_path / "old.npz"
+    np.savez_compressed(path, **old)  # 쓰기 함수는 최신 버전만 쓰므로 직접 저장
+    meta, got = read_replay(path)
+    assert meta["format_version"] == 2 and "committed" not in got and "moved" not in got
+    assert set(got) == set(old) - {s.META_KEY}
+
+
+def test_version_field_rules():
+    a = make_synthetic_arrays(T=20, seed=3)
+    missing = {k: v for k, v in a.items() if k != "moved"}
+    with pytest.raises(s.SchemaError, match="moved"):
+        s.validate(missing)  # 버전 3에는 필수
+    v2_with_new = _as_version2(a)
+    v2_with_new["committed"] = a["committed"]
+    with pytest.raises(s.SchemaError, match="committed"):
+        s.validate(v2_with_new)  # 버전 2 파일에는 없어야 한다

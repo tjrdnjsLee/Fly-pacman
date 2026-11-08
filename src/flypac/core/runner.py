@@ -1,16 +1,15 @@
-"""실행기 (TRD 6). 한 틱 순서(6.1)와 종료 처리(6.2)는 이 파일 한 곳에만 있다.
+"""실행기 (TRD 6). 한 틱 순서(6.1)와 종료 처리(6.2)는 core/tick.py 한 곳에만 있다. 실행기는 그것을 쓴다.
 
 B개 게임 칸을 나란히 돌린다. 칸마다 자기 시드로 `n_games`판을 연속으로 하고,
-판 초기화는 기록 뒤에 여기서 한다. 엔진은 스스로 초기화하지 않는다.
+판 초기화는 기록 뒤에 core/tick.py에서 한다. 엔진은 스스로 초기화하지 않는다.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from flypac.core.events import Event, Kind
-from flypac.core.rng import GameRngs, game_rngs, make_rng
-from flypac.core.types import FlyObs
+from flypac.core.rng import game_rngs
+from flypac.core.tick import TickCore
 from flypac.engine.fake import FakeVecGame
 from flypac.engine.game import VecGame
 from flypac.field.odor import Field
@@ -18,9 +17,6 @@ from flypac.ghosts.random_ghost import RandomGhost
 from flypac.maps.original import load_original
 from flypac.pacman.rule_based import RuleBasedPacman
 from flypac.regimes import make_regime
-from flypac.senses.sense import sense
-
-_END_KINDS = (Kind.LIFE_LOST, Kind.GAME_OVER)
 
 
 class NullRecorder:
@@ -34,31 +30,19 @@ class NullRecorder:
     def close(self): ...
 
 
-def _slice_obs(obs: FlyObs, b: int) -> FlyObs:
-    """한 게임의 관측 조각 (F,4) 모양. regime.emission에 넘긴다."""
-    return FlyObs(obs.odor[b], obs.phero[b], obs.z[b], obs.legal[b], obs.decide[b])
+class Runner(TickCore):
+    """실험 실행기: TickCore에 부품 조립 · views 규칙 검사 · 무한 루프 감시 · 기록기 닫기를 더한다."""
 
-
-class Runner:
-    def __init__(self, cfg, map, game: VecGame, odor: Field, phero: Field | None, pacman, ghosts, regime,
-                 recorder):
-        self.cfg, self.map = cfg, map
-        self.condition = str(cfg.condition)
-        self.pass_views = self.condition == "b1"  # 원칙 2: views는 B1 조건에서만 조종기에 넘긴다
-        self.game, self.odor, self.phero = game, odor, phero
-        self.pacman, self.ghosts, self.regime, self.recorder = pacman, ghosts, regime, recorder
-        self.B = game.B
-        self.F = 4
-        self.n_games = int(cfg.n_games)
-        self.c0 = float(cfg.odor.c0)
-        self.s_odor = float(cfg.odor.s)
-        self.reset_odor_on_life_loss = bool(cfg.odor.reset_on_life_loss)
+    def __init__(self, cfg, map, game: VecGame, engine_rngs, odor: Field, phero: Field | None, pacman, ghosts,
+                 regime, recorder):
         replay = cfg.get("replay", {})
-        self.keep_games = set(replay.get("keep_games", [])) if replay else set()
-        self.game_no = np.ones(self.B, dtype=np.int64)  # 칸별 현재 판 번호 (1부터)
-        self.finished = np.zeros(self.B, dtype=bool)
-        self.total_ticks = 0
-        self.results: list[dict] = []  # 끝난 판마다 {slot, game_no, winner}
+        super().__init__(map, game, engine_rngs, ghosts, condition=str(cfg.condition), pacman=pacman,
+                         odor=odor, phero=phero, regime=regime, recorder=recorder,
+                         c0=float(cfg.odor.c0), s_odor=float(cfg.odor.s),
+                         reset_odor_on_life_loss=bool(cfg.odor.reset_on_life_loss),
+                         n_games=int(cfg.n_games),
+                         keep_games=replay.get("keep_games", []) if replay else [])
+        self.cfg = cfg
 
     # ---- 초기화 ----
     def _check_views_rule(self) -> None:
@@ -70,118 +54,12 @@ class Runner:
 
     def _reset_all(self) -> None:
         self._check_views_rule()
-        every = np.ones(self.B, dtype=bool)
-        self.odor.reset(every)
-        if self.phero is not None:
-            self.phero.reset(every)
-        self.pacman.reset(every)
-        self.ghosts.reset_life(every)
+        self.start()
 
-    # ---- 한 틱 (TRD 6.1) ----
+    # ---- 한 틱 ----
     def tick(self) -> None:
-        B, F = self.B, self.F
-        running = ~self.finished
-        game = self.game
-
-        views = game.views()                                              # 1
-        pac_act = self.pacman.act(views)                                  # 2
-        ev = game.step_pacman(pac_act)                                    # 3
-        views = game.views()                                              # 4 (다시 만든다)
-        phero_c = self.phero.c if self.phero is not None else np.zeros_like(self.odor.c)
-        obs = sense(self.odor.c, phero_c, views, game.decision_info(), self.c0, nbr=self.map.nbr)  # 5
-        # 한 프레임의 views, obs, 냄새 장이 같은 순간이 되게 5번의 값을 복사해 둔다 (10번에서 장이 바뀐다)
-        frame_odor, frame_phero = self.odor.c.copy(), phero_c.copy()
-        alive = np.array([not v.frozen for v in views]) & running
-        fly_act = self.ghosts.propose(obs, alive, views if self.pass_views else None)             # 6
-        ev2, moved, committed, active = game.step_flies(fly_act)          # 7 (DECISIONS 4절의 표)
-        released = np.zeros(B, dtype=bool)
-        eaten = np.zeros((B, F), dtype=bool)
-        for b in range(B):
-            for e in ev[b] + ev2[b]:
-                if e.kind is Kind.ALL_RELEASED:
-                    released[b] = True
-                elif e.kind is Kind.EATEN:
-                    eaten[b, e.fly] = True
-        # 8: on_release → commit → on_eaten (총책임자 결정, DECISIONS 4절). TRD의 commit → on_release 순서면
-        # 같은 틱 ALL_RELEASED 뒤의 첫 활성 결정 흔적이 on_release(e=0)로 지워진다. commit은 결정별 active로
-        # 거르므로 순서를 바꿔도 비활성 결정은 흔적에 들어가지 않는다.
-        if released.any():
-            self.ghosts.on_release(released)  # 학습 활성은 게임 단위
-        self.ghosts.commit(committed, active)  # 확정된 결정만. 복도 · 집 출구 이동(moved만 참)은 넘기지 않는다
-        if eaten.any():
-            self.ghosts.on_eaten(eaten)
-        timers = game.tick_timers()                                       # 9
-        events: list[list[Event]] = [ev[b] + ev2[b] + timers[b] for b in range(B)]
-
-        now = game.views()
-        step_mask = np.array([not v.frozen for v in now]) & running       # 10 (동결 게임 제외)
-        S = np.zeros_like(self.odor.c)
-        for b in range(B):
-            S[b, now[b].pac_cell] = self.s_odor
-        self.odor.step(S, step_mask)
-        if self.phero is not None:
-            Sp = np.zeros_like(self.phero.c)
-            for b in range(B):
-                em = self.regime.emission(_slice_obs(obs, b))
-                for k in range(F):
-                    Sp[b, now[b].fly_cell[k]] += em[k]
-            self.phero.step(Sp, step_mask)
-
-        brain = {"action": fly_act, "pi": getattr(self.ghosts, "last_pi", np.zeros((B, F, 4)))}
-        if hasattr(self.ghosts, "replay_info"):  # 뇌 필드 (TRD 19.13): 뇌 담당이 제공
-            brain.update(self.ghosts.replay_info())
-        R = np.zeros((B, F))                                              # 11
-        for b in range(B):
-            if running[b]:
-                R[b] = self.regime.rewards(events[b])
-        self.ghosts.give_reward(R)
-
-        for b in range(B):                                                # 12
-            if running[b]:
-                self.recorder.on_events(b, events[b], views[b])
-                self.recorder.replay_frame(b, views, obs, frame_odor, frame_phero, brain)
-
-        self._end_of_tick(events, running)                                # 13
-        self.total_ticks += 1
-
-    # ---- 종료 처리 (TRD 6.2) ----
-    def _end_of_tick(self, events: list[list[Event]], running: np.ndarray) -> None:
-        ends = np.array([bool(running[b] and any(e.kind in _END_KINDS for e in events[b]))
-                         for b in range(self.B)])
-        if not ends.any():
-            return
-        # 1. 추가 행동 중단: 이미 동결되어 있다 (6, 7, 9, 10번에서 제외됨)
-        # 2. 마지막 학습: 학습 활성 플래그가 아직 켜진 채로 (초기화는 4번)
-        self.ghosts.flush_learning(ends)
-        # 3. 종료 상태 기록: 사건 처리가 끝난 뒤 view를 다시 읽는다
-        final = self.game.views()
-        over = np.zeros(self.B, dtype=bool)
-        for b in np.flatnonzero(ends):
-            self.recorder.on_life_end(int(b), final[b], events[b])
-            winner = next((e.winner for e in events[b] if e.kind is Kind.GAME_OVER), None)
-            if winner is not None:
-                over[b] = True
-                self.recorder.on_game_end(int(b), final[b], events[b])
-                self.recorder.replay_end(int(b), int(self.game_no[b]) in self.keep_games)
-                self.results.append({"slot": int(b), "game_no": int(self.game_no[b]), "winner": str(winner)})
-        # 4. 초기화: 조종기와 팩맨 이력, 냄새 장, 게임. 학습 활성은 게임 초기화(또는 은퇴)에서 해제된다
-        self.pacman.reset(ends)
-        self.ghosts.reset_life(ends)
-        field_reset = over | (ends & self.reset_odor_on_life_loss)
-        if field_reset.any():
-            self.odor.reset(field_reset)
-            if self.phero is not None:
-                self.phero.reset(field_reset)
-        more = over & (self.game_no < self.n_games)
-        retired = over & ~more  # 모든 판을 끝낸 칸: 새 판은 시작하지 않고 학습 활성만 내린다
-        self.finished |= retired
-        self.game_no[more] += 1
-        bundle = getattr(self.ghosts, "rngs", None)
-        if isinstance(bundle, GameRngs):          # 새 판: (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2)
-            bundle.renew(more, self.game_no)
-        self.game.retire(retired)
-        self.game.reset_game(more)
-        self.game.reset_life(ends & ~over)
+        views = self.begin()                  # 1
+        self.finish(self.pacman.act(views))   # 2~13
 
     def run(self) -> dict:
         self._reset_all()
@@ -201,22 +79,38 @@ def build_runner(cfg, recorder=None) -> Runner:
     amap = load_original()
     seeds = [int(s) for s in cfg.seeds]
     B = len(seeds)
-    rngs = [make_rng(s, 0, "engine") for s in seeds]
+    # 엔진 난수: (시드, 판 번호, "engine"). 판 1부터, 판마다 다시 만들어 reset_game(rng)으로 준다 (DECISIONS 11절)
+    engine_rngs = game_rngs(seeds, "engine")
     kind = cfg.engine.kind
     if kind == "fake":
-        game = FakeVecGame(B, amap, cfg, rngs)
+        game = FakeVecGame(B, amap, cfg, [engine_rngs[b] for b in range(B)])
     elif kind == "real":
-        game = VecGame(B, amap, cfg, rngs)
+        game = VecGame(B, amap, cfg, [engine_rngs[b] for b in range(B)])
     else:
         raise ValueError(f"알 수 없는 engine.kind: {kind}")
     odor = Field(amap, float(cfg.odor.D), float(cfg.odor.lam))
     condition = cfg.condition
     phero = Field(amap, float(cfg.phero.D), float(cfg.phero.lam)) if condition == "regime3" else None
-    if cfg.pacman.kind != "rule_based":
-        raise NotImplementedError(f"pacman.kind={cfg.pacman.kind}")
-    pacman = RuleBasedPacman(amap, cfg, make_rng(seeds[0], 0, "pacman"))
-    if cfg.ghosts.kind != "random":
-        raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: flybrain(뇌 담당), original(B1)
-    ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
+    pacman_kind = cfg.pacman.kind
+    if pacman_kind == "rule_based":
+        pacman = RuleBasedPacman(amap, cfg, game_rngs(seeds, "pacman"))
+    elif pacman_kind == "ppo":
+        # 학습한 체크포인트로 행동한다 (torch 필요: uv sync --extra pacman). 값은 모두 설정에 적는다.
+        from flypac.pacman.ppo import PPOPacman
+        pc = cfg.pacman
+        missing = [k for k in ("checkpoint", "device", "eps") if k not in pc]
+        if missing:
+            raise ValueError(f"pacman.kind: ppo에는 pacman.{', pacman.'.join(missing)} 설정이 필요하다")
+        pacman = PPOPacman(str(pc.checkpoint), str(pc.device), float(pc.eps), game_rngs(seeds, "pacman"),
+                           run_cfg=cfg)
+    else:
+        raise NotImplementedError(f"pacman.kind={pacman_kind}")
+    if cfg.ghosts.kind == "random":
+        ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
+    elif cfg.ghosts.kind == "flybrain":
+        from flypac.brain.flybrain import FlyBrain, load_brain_config
+        ghosts = FlyBrain(load_brain_config(cfg.ghosts.config), B, seeds, condition=str(condition))
+    else:
+        raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: original(B1)
     regime = make_regime(cfg)
-    return Runner(cfg, amap, game, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())
+    return Runner(cfg, amap, game, engine_rngs, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())
