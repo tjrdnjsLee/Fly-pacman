@@ -16,6 +16,9 @@ pacman = ["torch"]
 viz = ["pygame", "imageio-ffmpeg", "matplotlib", "manim>=0.19"]
 # 회로 추출 (토큰 필요, 뇌 담당만). 기본 설치와 CI에는 들어가지 않는다.
 extract = ["neuprint-python==0.6.4"]
+# 표현력 시험 (뇌 담당, M1 뇌 ② 단계 3). 기본 설치와 CI에는 들어가지 않는다.
+# 2주 이상 된 안정판으로 정확히 고정 (1.9.1, 2026-09-10).
+analysis = ["scikit-learn==1.9.1"]
 
 [dependency-groups]
 dev = ["pytest"]
