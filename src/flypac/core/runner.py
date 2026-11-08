@@ -6,6 +6,8 @@ B개 게임 칸을 나란히 돌린다. 칸마다 자기 시드로 `n_games`판�
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from flypac.core.events import Event, Kind
@@ -56,6 +58,10 @@ class Runner:
         replay = cfg.get("replay", {})
         self.keep_games = set(replay.get("keep_games", [])) if replay else set()
         self.game_no = np.ones(self.B, dtype=np.int64)  # 칸별 현재 판 번호 (1부터)
+        # 칸별 현재 판의 틱 번호 (0부터). 틱 번호의 주인은 실행기 하나다: 동결된 틱을 포함해 매 틱 올리고
+        # 새 판에서 0으로 돌린다. 사건의 틱 번호는 이 값을 쓴다 = 재생 프레임 번호 (DECISIONS 8절)
+        self.tick_no = np.zeros(self.B, dtype=np.int64)
+        self._new_game = np.zeros(self.B, dtype=bool)
         self.finished = np.zeros(self.B, dtype=bool)
         self.total_ticks = 0
         self.results: list[dict] = []  # 끝난 판마다 {slot, game_no, winner}
@@ -78,14 +84,28 @@ class Runner:
         self.ghosts.reset_life(every)
 
     # ---- 한 틱 (TRD 6.1) ----
+    def _stamp(self, events: list[list[Event]]) -> list[list[Event]]:
+        """사건의 틱 번호를 실행기의 번호로 쓴다 (엔진이 붙인 번호를 믿지 않는다)."""
+        return [[e if e.tick == t else replace(e, tick=t) for e in evs]
+                for evs, t in zip(events, self.tick_no.tolist())]
+
+    def _check_engine_tick(self, views, running) -> None:
+        """엔진의 틱 번호(view.tick)는 실행기의 번호를 따라야 한다. 다르면 엔진 버그로 멈춘다."""
+        for b in np.flatnonzero(running):
+            if int(views[b].tick) != int(self.tick_no[b]):
+                raise RuntimeError(f"칸 {b}: 엔진 틱 {views[b].tick} ≠ 실행기 틱 {self.tick_no[b]} "
+                                   "(엔진은 동결된 틱에도 틱 번호를 올려야 한다, DECISIONS 8절)")
+
     def tick(self) -> None:
         B, F = self.B, self.F
         running = ~self.finished
         game = self.game
+        self._new_game = np.zeros(B, dtype=bool)
 
         views = game.views()                                              # 1
+        self._check_engine_tick(views, running)
         pac_act = self.pacman.act(views)                                  # 2
-        ev = game.step_pacman(pac_act)                                    # 3
+        ev = self._stamp(game.step_pacman(pac_act))                       # 3
         views = game.views()                                              # 4 (다시 만든다)
         phero_c = self.phero.c if self.phero is not None else np.zeros_like(self.odor.c)
         obs = sense(self.odor.c, phero_c, views, game.decision_info(), self.c0, nbr=self.map.nbr)  # 5
@@ -94,6 +114,7 @@ class Runner:
         alive = np.array([not v.frozen for v in views]) & running
         fly_act = self.ghosts.propose(obs, alive, views if self.pass_views else None)             # 6
         ev2, moved, committed, active = game.step_flies(fly_act)          # 7 (DECISIONS 4절의 표)
+        ev2 = self._stamp(ev2)
         released = np.zeros(B, dtype=bool)
         eaten = np.zeros((B, F), dtype=bool)
         for b in range(B):
@@ -110,7 +131,7 @@ class Runner:
         self.ghosts.commit(committed, active)  # 확정된 결정만. 복도 · 집 출구 이동(moved만 참)은 넘기지 않는다
         if eaten.any():
             self.ghosts.on_eaten(eaten)
-        timers = game.tick_timers()                                       # 9
+        timers = self._stamp(game.tick_timers())                          # 9
         events: list[list[Event]] = [ev[b] + ev2[b] + timers[b] for b in range(B)]
 
         now = game.views()
@@ -144,6 +165,8 @@ class Runner:
 
         self._end_of_tick(events, running)                                # 13
         self.total_ticks += 1
+        self.tick_no[running] += 1   # 동결된 틱 포함, 진행 중인 칸은 매 틱
+        self.tick_no[self._new_game] = 0
 
     # ---- 종료 처리 (TRD 6.2) ----
     def _end_of_tick(self, events: list[list[Event]], running: np.ndarray) -> None:
@@ -177,6 +200,7 @@ class Runner:
         retired = over & ~more  # 모든 판을 끝낸 칸: 새 판은 시작하지 않고 학습 활성만 내린다
         self.finished |= retired
         self.game_no[more] += 1
+        self._new_game = more
         bundle = getattr(self.ghosts, "rngs", None)
         if isinstance(bundle, (GameRngs, RngGroup)):  # 새 판: (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2)
             bundle.renew(more, self.game_no)
