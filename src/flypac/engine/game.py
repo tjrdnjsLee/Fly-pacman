@@ -32,7 +32,7 @@ import numpy as np
 
 from flypac.core import directions as d
 from flypac.core.config import load_config
-from flypac.core.events import Event, Kind, Winner
+from flypac.core.events import Event, Kind, Winner, ZCause
 from flypac.core.timing import config_ticks
 from flypac.core.types import GameView
 from flypac.maps.original import MapSpec
@@ -69,17 +69,27 @@ class Game:
         self.v_pac = float(e.pacman_speed)
         self.v_fly = float(e.fly_speed)
         self.v_dot = float(e.get("pacman_dot_speed", self.v_pac))
+        self.v_pac_power = float(_engine_setting(e, "pacman_power_speed"))
+        self.v_dot_power = float(_engine_setting(e, "pacman_power_dot_speed"))
+        self.v_frightened = float(_engine_setting(e, "fly_frightened_speed"))
+        self.power_ticks_max = config_ticks(cfg, e.power_s)
         self.score_dot = int(e.score_dot)
         self.score_energizer = int(e.score_energizer)
+        self.score_ghosts = tuple(_engine_setting(e, "score_ghosts"))
         self.watchdog = int(e.watchdog_ticks)
         self.house_personal_limits = _engine_setting(e, "house_personal_dots")
         self.house_global_limits = _engine_setting(e, "house_global_dots")
         self.house_no_dot_ticks = config_ticks(cfg, _engine_setting(e, "house_no_dot_s"))
-        if not (0 <= self.v_pac <= 1 and 0 <= self.v_fly <= 1):
+        if not all(0 <= speed <= 1 for speed in
+                   (self.v_pac, self.v_fly, self.v_pac_power, self.v_frightened)):
             raise ValueError("속도는 0 이상 1 이하여야 한다 (TRD 7.2)")
-        if not 0 <= self.v_dot <= self.v_pac or (self.v_pac > 0 and self.v_dot == 0):
-            raise ValueError("점 이동 속도는 양수이고 평소 속도 이하여야 한다")
+        for speed, dot_speed in ((self.v_pac, self.v_dot), (self.v_pac_power, self.v_dot_power)):
+            if not 0 <= dot_speed <= speed or (speed > 0 and dot_speed == 0):
+                raise ValueError("점 이동 속도는 양수이고 해당 상태의 이동 속도 이하여야 한다")
+        if self.power_ticks_max <= 0 or not self.score_ghosts:
+            raise ValueError("파워 지속 틱과 초파리 점수 목록이 필요하다")
         self.F = len(map.fly_starts)
+        self._fly_start_dirs = np.array([d.WEST] + [d.NORTH] * (self.F - 1), dtype=np.int64)
         self._house = np.zeros(map.nbr.shape[0], dtype=bool)
         self._house[map.house_cells] = True
         self._house[map.door_cells] = True
@@ -91,7 +101,9 @@ class Game:
             return []
         if 0 <= action < len(d.ABS_NAMES):
             self.pac_requested_dir = int(action)
-        self.pac_acc, will_move = advance_accumulator(self.pac_acc, self.v_pac)
+        speed = self.v_pac_power if self.power_ticks else self.v_pac
+        dot_speed = self.v_dot_power if self.power_ticks else self.v_dot
+        self.pac_acc, will_move = advance_accumulator(self.pac_acc, speed)
         if not will_move:
             return []
         legal = self.map.move_mask["pacman"][self.pac_cell]
@@ -104,7 +116,7 @@ class Game:
         if self.dots[self.pac_cell]:
             self.dots[self.pac_cell] = False
             self.score += self.score_dot
-            self.pac_acc -= self.v_pac / self.v_dot - 1
+            self.pac_acc -= speed / dot_speed - 1
             events.append(self._ev(Kind.DOT))
             self._count_house_dot()
         elif self.energizers[self.pac_cell]:
@@ -112,7 +124,10 @@ class Game:
             self.score += self.score_energizer
             events.append(self._ev(Kind.ENERGIZER))
             self._count_house_dot()
-            # 겁먹음 · z 전환 · 연속 사냥 초기화는 단계 7에서 구현한다.
+            self.power_ticks = self.power_ticks_max
+            self.ghost_streak = 0
+            events.append(self._ev(Kind.POWER_START))
+            self._set_frightened(True, ZCause.POWER_START, events)
         if not (self.dots.any() or self.energizers.any()):
             events.append(self._ev(Kind.GAME_OVER, cause=Winner.PACMAN))
             self.frozen = True
@@ -122,6 +137,14 @@ class Game:
 
     def _ev(self, kind: Kind, fly: int = -1, cause=None) -> Event:
         return Event(kind, self.index, self.tick, fly, self.learning_active, cause)
+
+    def _set_frightened(self, frightened: bool, cause: ZCause, events: list[Event]) -> None:
+        for k in np.flatnonzero(self.fly_z != frightened):
+            self.fly_z[k] = frightened
+            events.append(self._ev(Kind.Z_CHANGE, int(k), cause))
+
+    def _fly_speed(self, k: int) -> float:
+        return self.v_frightened if self.fly_z[k] else self.v_fly
 
     def _waiting_fly(self) -> int | None:
         return next((k for k in range(self.F) if not self.released[k] and not self.exiting[k]), None)
@@ -148,7 +171,7 @@ class Game:
                 return False
             self.exiting[k] = True
 
-        self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self.v_fly)
+        self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self._fly_speed(k))
         if not will_move:
             return False
         _, column = self.map.cell_rc[self.fly_cell[k]]
@@ -172,7 +195,17 @@ class Game:
         for k in range(self.F) if fly is None else [fly]:
             if self._house[self.fly_cell[k]] or self.fly_cell[k] != self.pac_cell:
                 continue
-            # 겁먹은 초파리의 먹힘 분기는 단계 7에서 추가한다.
+            if self.fly_z[k]:
+                events.append(self._ev(Kind.EATEN, k))
+                self.score += self.score_ghosts[min(self.ghost_streak, len(self.score_ghosts) - 1)]
+                self.ghost_streak += 1
+                self.fly_cell[k] = self.map.fly_starts[k]
+                self.fly_dir[k] = self._fly_start_dirs[k]
+                self.fly_acc[k] = 0.0
+                self.exiting[k] = bool(self._house[self.fly_cell[k]])
+                self.fly_z[k] = False
+                events.append(self._ev(Kind.Z_CHANGE, k, ZCause.REVIVE))
+                continue
             events.append(self._ev(Kind.CATCH, k))
             self.lives -= 1
             events.append(self._ev(Kind.LIFE_LOST))
@@ -202,7 +235,7 @@ class Game:
                 if self.frozen:
                     break
                 continue
-            self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self.v_fly)
+            self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self._fly_speed(k))
             if not will_move:
                 continue
             options = self._fly_options(k)
@@ -243,6 +276,11 @@ class Game:
         events: list[Event] = []
         if not self.frozen:
             self.life_tick += 1
+            if self.power_ticks:
+                self.power_ticks -= 1
+                if not self.power_ticks:
+                    events.append(self._ev(Kind.POWER_END))
+                    self._set_frightened(False, ZCause.POWER_END, events)
             if self.tick - self.last_house_dot_tick >= self.house_no_dot_ticks:
                 waiting = self._waiting_fly()
                 if waiting is not None:
@@ -260,12 +298,12 @@ class Game:
             pac_cell=self.pac_cell,
             pac_dir=self.pac_dir,
             lives=self.lives,
-            power=False,
-            power_ticks=0,
-            ghost_streak=0,
+            power=self.power_ticks > 0,
+            power_ticks=self.power_ticks,
+            ghost_streak=self.ghost_streak,
             fly_cell=self.fly_cell.copy(),
             fly_dir=self.fly_dir.copy(),
-            fly_z=np.zeros(self.F, dtype=bool),
+            fly_z=self.fly_z.copy(),
             fly_in_house=self._house[self.fly_cell].copy(),
             dots=self.dots.copy(),
             energizers=self.energizers.copy(),
@@ -289,7 +327,7 @@ class Game:
             options = self._fly_options(k)
             for direction in options:
                 legal[k, int(d.abs_to_ego(self.fly_dir[k], direction))] = True
-            will_move = self.fly_acc[k] + self.v_fly >= 1.0
+            will_move = self.fly_acc[k] + self._fly_speed(k) >= 1.0
             decide[k] = len(options) >= 2 and will_move and not self.frozen
         return legal, decide
 
@@ -308,8 +346,10 @@ class Game:
         self.pac_requested_dir = self.pac_dir
         self.pac_acc = 0.0
         self.fly_cell = m.fly_starts.astype(np.int64).copy()
-        self.fly_dir = np.array([d.WEST] + [d.NORTH] * (self.F - 1), dtype=np.int64)
+        self.fly_dir = self._fly_start_dirs.copy()
         self.fly_acc = np.zeros(self.F)
+        self.fly_z = np.zeros(self.F, dtype=bool)
+        self.power_ticks = 0
         self.released = ~self._house[self.fly_cell]  # 처음부터 집 밖인 1번만 이동한다.
         self.exiting = np.zeros(self.F, dtype=bool)
         self.house_personal_count = np.zeros(self.F, dtype=np.int64)
@@ -332,6 +372,7 @@ class Game:
         self.dots = self.map.dots.copy()
         self.energizers = self.map.energizers.copy()
         self.score = 0
+        self.ghost_streak = 0
         self.tick = 0
         self.reset_life()
 

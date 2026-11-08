@@ -91,10 +91,10 @@ def test_dot_event_score_and_single_consumption():
 
 def test_energizer_score_without_three_frame_pause():
     from flypac.core.events import Kind
-    game = new_game(pacman_speed=1)
+    game = new_game(pacman_speed=1, pacman_power_speed=1)
     game.energizers[cell(1, 2)] = True
     events = game.step_pacman(d.EAST)
-    assert [event.kind for event in events] == [Kind.ENERGIZER]
+    assert [event.kind for event in events] == [Kind.ENERGIZER, Kind.POWER_START] + [Kind.Z_CHANGE] * 4
     assert game.score == 50 and not game.energizers[cell(1, 2)]
     assert game.pac_acc == 0
     game.step_pacman(d.EAST)
@@ -153,7 +153,8 @@ def test_last_pickup_wins_before_collision(energizer):
     (game.energizers if energizer else game.dots)[target] = True
     game.fly_cell[0] = target
     events = game.step_pacman(d.EAST)
-    assert [event.kind for event in events] == [Kind.ENERGIZER if energizer else Kind.DOT, Kind.GAME_OVER]
+    pickups = [Kind.ENERGIZER, Kind.POWER_START] + [Kind.Z_CHANGE] * 4 if energizer else [Kind.DOT]
+    assert [event.kind for event in events] == pickups + [Kind.GAME_OVER]
     assert events[-1].winner is Winner.PACMAN and game.lives == 3 and game.frozen
 
 
