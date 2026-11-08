@@ -46,12 +46,20 @@ TRD 5절이 모양을 정하지 않은 곳을 M0 인터페이스 자리 단계�
 | `tick_timers()` | | `list[list[Event]]` |
 | `views()` | | `list[GameView]` (길이 B) |
 | `decision_info()` | | `(legal (B,F,4) bool, decide (B,F) bool)` |
-| `reset_life(mask)`, `reset_game(mask)` | `(B,)` bool | 없음. mask가 참인 게임만 |
+| `reset_life(mask)` | `(B,)` bool | 없음. mask가 참인 게임만 |
+| `reset_game(mask, rngs)` | `(B,)` bool, 칸별 엔진 생성기 `GameRngs` | 없음. mask가 참인 게임 `b`에 `rngs[b]`를 주고 새 판을 시작한다. **관리자 결정 2026-11-08 — TRD 5.2의 수정, TRD v0.6에 반영할 것** |
 | `retire(mask)` | `(B,)` bool | 없음. mask가 참인 게임의 `learning_active`만 거짓으로 내린다. 새 판은 시작하지 않고 동결은 유지한다. **TRD 5.2에 없는 메서드다. 총책임자 결정 — TRD v0.6에 반영할 것** |
 
 - 자동 초기화 없음. 초기화는 실행기만 부른다.
 - `retire`는 모든 판을 끝낸 칸을 은퇴시킬 때 실행기가 부른다 (7절). 새 판이 시작되지 않는 칸은 `reset_game`을 거치지 않으므로, 학습 활성이 종료 처리 뒤에도 켜진 채 남지 않게 하려는 것이다.
-- `Game`의 같은 이름 메서드는 한 판 모양이다 (`step_flies`는 `(F,)` 입력, `decision_info`는 `(F,4)`, `(F,)` 반환, `view()`).
+- `Game`의 같은 이름 메서드는 한 판 모양이다 (`step_flies`는 `(F,)` 입력, `decision_info`는 `(F,4)`, `(F,)` 반환, `view()`, `reset_game(rng)`).
+- **엔진 난수 계약 (관리자 결정 2026-11-08, `engine/game.py` 모듈 docstring에 같은 글):**
+  - 판을 시작할 때마다(**판 1 포함**) 실행기가 `Game.reset_game(rng)`로 그 판의 생성기 `make_rng(시드, 판 번호, "engine")`을 준다. 판 번호는 1부터 (이전에는 판 0번 생성기 하나를 모든 판에 썼다).
+  - 엔진은 받은 생성기로 자기 난수를 바꾸고 다음 `reset_game`까지 그것만 쓴다. 다른 생성기나 전역 난수(`np.random.*`, `random.*`)를 쓰지 않는다.
+  - `reset_life`는 난수를 바꾸지 않는다 (목숨이 바뀌어도 그 판의 난수열은 이어진다).
+  - 생성자의 `rng`는 TRD 5.2 모양 때문에 남은 자리다. 실행기가 실행 시작 때 곧바로 `reset_game(rng)`를 부르므로 엔진은 생성자의 `rng`로 난수를 뽑지 않는다.
+  - 생성자 재호출 방식을 고르지 않은 이유: 판마다 엔진 객체를 새로 만들면 엔진 내부의 미리 계산한 표를 다시 만들고 `Game.index`도 다시 붙여야 한다.
+  - 시험: `tests/test_engine_rngs.py` (판 시작마다 받은 생성기 = (시드, 판 번호, "engine"), `engine.kind`마다 돌고 진짜 엔진이 생기면 자동으로 돈다. 매 틱 엔진 난수를 뽑는 대역으로 묶음 크기 · 칸 순서와 무관함을 확인).
 
 ## 4. 유령 조종기 (brain/base.py)
 
@@ -128,6 +136,12 @@ TRD 5.8이 `...`로 비워 둔 인자:
 
 ## 7. 실행기와 가짜 엔진 (M0 4단계)
 
+- **한 틱 처리와 판 시작 처리는 `core/tick.py`의 `TickCore` 한 곳에만 있다 (관리자 결정 2026-11-08).** 틱 번호(8절), `view.tick` 대조, 사건 틱 다시 쓰기, committed/moved와 조종기 통지 순서(4절), 종료 처리(TRD 6.2), 판마다 난수 갱신(11절)이 모두 여기 있다. 실행기 `Runner`는 `TickCore`를 상속해 부품 조립 · views 규칙 검사 · 무한 루프 감시 · 기록기 닫기만 더한다. PPO 학습 환경도 같은 `TickCore`를 쓴다 (따로 구현하지 않는다).
+  - 한 틱은 두 단계다: `views = core.begin()` (1번: views를 만들고 엔진 틱을 대조) → `out = core.finish(팩맨 행동)` (2 ~ 13번과 종료 처리). 순서는 내부 상태로 강제한다: `begin` 없이 `finish`, 또는 `begin`을 두 번 부르면 `RuntimeError`.
+  - 콜백 방식(`step(pacman_act)`) 대신 두 단계를 고른 이유: PPO 학습 루프는 관측 → 행동 선택(확률 · 가치를 버퍼에 저장) → 환경 한 스텝의 순서라, 관측을 만든 views와 엔진 틱을 대조한 views가 같은 객체여야 하고 틱마다 views를 한 번만 만든다. 콜백이면 학습 환경이 관측용 views를 따로 만들거나 행동 선택을 콜백 안에 넣어야 한다.
+  - 냄새 장(`odor=None`), 기록(`recorder=None`), 체제 보상(`regime=None`)은 인자로 끈다. 끄면 냄새 · 페로몬 관측은 0, 조종기 보상은 0이다. `n_games=None`이면 판이 끝없이 이어진다 (은퇴 없음). `pacman=None`이면 팩맨 이력 초기화와 난수 갱신은 호출자가 한다.
+  - `finish`는 `TickOut`(사건, 초기화 전 `now` views, `ends`, `over`, 새로 시작한 칸 `started`, 초파리 행동 · moved · committed)을 돌려준다.
+
 - `Game.index`: 묶음 안의 칸 번호. `VecGame`이 생성 직후 정해 주고, 사건의 `game` 값으로 쓴다.
 - `GhostController.uses_views`: 조종기가 `views`를 쓰는지 알리는 표시다. 기본값은 거짓. **`views`를 넘기는 기준은 조건이다: 실행기는 `condition == "b1"`일 때만 넘긴다** (TRD 5.5, 원칙 2). 실행 시작 때 `uses_views != (condition == "b1")`이면 `ValueError`를 낸다. 그래서 `uses_views`만으로 초파리 조건에서 `views`를 받을 수 없다.
 - `ALL_RELEASED` 사건 자체의 `active`는 거짓이다 (학습 활성이 켜지기 직전에 만들어진다). 그 뒤 같은 틱에 생긴 사건은 참.
@@ -153,7 +167,7 @@ TRD 5.8이 `...`로 비워 둔 인자:
 - `GameView`에 기본값이 있는 필드 `pac_acc: float = 0.0`, `fly_acc: (F,) | None = None`을 끝에 더했다. 재생 로그의 보간(TRD 19.6)이 속도 누적값을 쓰기 때문이다. TRD 4.6의 기존 필드는 그대로다.
 - `Recorder.replay_frame(game, views, obs, odor, phero, brain)`의 `brain`은 사전이다: `action (B,F)`, `pi (B,F,4)`는 항상, `replay.brain`이 켜지면 `kc_active`, `pn_input`, `mbon_out`, `dan`도 (모두 앞 축이 B). 실행기가 `{"action": 6번의 반환값, "pi": 조종기.last_pi}`를 만들고, 조종기에 `replay_info()`가 있으면 그 사전을 합친다 (뇌 담당이 뇌 필드를 여기서 낸다). `replay.brain`이 켜졌는데 필드가 없으면 `ValueError`.
 - 재생 로그의 `T`는 그 판의 실행기 틱 수와 같고, **`ev_tick` = 그 사건이 기록된 프레임 번호**다. 목숨이 바뀌어도 한 판의 프레임은 이어진다.
-- **틱 번호의 주인은 실행기 하나다 (관리자 결정 2026-11-08, `ev_tick` 수정).** 실행기는 칸마다 현재 판의 틱 번호 `tick_no`를 갖는다. 동결된 틱(목숨을 잃은 틱 포함)을 포함해 진행 중인 칸은 매 틱 올리고, 새 판에서 0으로 돌린다. 엔진이 돌려준 사건(3 · 7 · 9번)의 틱 번호는 실행기가 이 값으로 다시 쓴다. 엔진의 `view.tick`(감시 장치가 쓰는 번호)은 실행기의 번호를 따라야 하며, 실행기가 매 틱 1번에서 대조해 다르면 `RuntimeError`로 멈춘다. 그래서 엔진도 **동결된 틱에 틱 번호를 올린다** (`tick_timers`).
+- **틱 번호의 주인은 실행기 하나다 (관리자 결정 2026-11-08, `ev_tick` 수정).** 실행기(`core/tick.py`의 `TickCore`, 7절 — 실행기와 학습 환경이 같이 쓴다)는 칸마다 현재 판의 틱 번호 `tick_no`를 갖는다. 동결된 틱(목숨을 잃은 틱 포함)을 포함해 진행 중인 칸은 매 틱 올리고, 새 판에서 0으로 돌린다. 엔진이 돌려준 사건(3 · 7 · 9번)의 틱 번호는 실행기가 이 값으로 다시 쓴다. 엔진의 `view.tick`(감시 장치가 쓰는 번호)은 실행기의 번호를 따라야 하며, 실행기가 매 틱 1번(`begin`)에서 대조해 다르면 `RuntimeError`로 멈춘다. 그래서 엔진도 **동결된 틱에 틱 번호를 올린다** (`tick_timers`).
   - 고친 문제: 가짜 엔진의 `tick_timers`가 동결된 틱에 번호를 올리지 않아, 판 도중 목숨을 잃을 때마다 `ev_tick`이 프레임 번호보다 1씩 작아졌다 (예: 프레임 399개인 판의 마지막 `ev_tick`이 397). `games.csv`의 `틱 수`(종료 상태의 `view.tick`)도 같이 모자랐다. 이제 `틱 수` = 그 판의 프레임 수다.
   - 시험 (엔진 무관, `tests/test_event_ticks.py`): 연기 설정을 끝까지 돌리며 모든 사건의 틱 번호 = 기록기가 그 사건을 받은 순간의 프레임 번호, 판을 끝낸 사건은 마지막 프레임. `engine.kind`마다 돌고 진짜 엔진이 생기면 자동으로 돈다. 동결 틱을 세지 않는 엔진은 실행기가 멈추는지도 시험한다.
 - `replay_end(game, keep)`는 판 번호를 올리는 곳이기도 하다 (파일 이름의 `g<판>`은 올리기 전 번호). `on_game_end` → `replay_end` 순서로 부른다.
@@ -257,6 +271,10 @@ $$
 
 - **칸별 난수:** `core.rng.game_rngs(seeds, purpose)`가 `GameRngs`를 만든다. 칸 `b`의 생성기는 `make_rng(seeds[b], 판 번호[b], purpose)`이다 (TRD 13.2). 한 칸의 난수열은 그 칸의 (시드, 판 번호, 용도)로만 정해지므로 묶음 크기 · 칸 순서와 무관하다. 용도 번호는 바꾸지 않고 뒤에 덧붙인다.
 - 난수를 쓰는 조종기는 묶음을 `rngs` 속성에 둔다 (`GhostController.rngs`, 기본 `None`). 실행기가 새 판을 시작할 때 `rngs.renew(mask, game_no)`를 부른다. 메서드 모양(4절)은 바뀌지 않는다. 무작위 유령이 먼저 쓰고, 뇌(`brain/flybrain.py`)도 같은 방식을 쓴다.
+- **판 시작 때 모든 난수 묶음을 다시 만든다 (관리자 결정 2026-11-08, 점검에서 찾은 누락 수정).** 판 시작 처리(`TickCore._start_games`)는 판 1을 포함해 판마다 엔진 묶음(`GameRngs "engine"`, 3절의 계약대로 `reset_game(mask, rngs)`로 준다), 유령 조종기의 `rngs`, 팩맨 조종기의 `rngs`를 (시드, 판 번호, 용도)로 다시 만든다.
+  - 고친 문제: PR #7의 판별 갱신이 유령 조종기에만 적용되어, 엔진은 판이 바뀌어도 `make_rng(시드, 0, "engine")` 하나를 계속 썼다. 팩맨은 `make_rng(seeds[0], 0, "pacman")` 하나를 모든 칸이 같이 썼다 (묶음 크기 · 칸 순서에 따라 난수열이 달라진다).
+  - 팩맨 조종기도 칸별 묶음을 받는다: `RuleBasedPacman(map, cfg, game_rngs(seeds, "pacman"))`. 지금 규칙은 난수를 쓰지 않는다.
+  - 결과 영향: 가짜 엔진과 규칙 팩맨은 난수를 쓰지 않으므로 같은 시드의 결과는 그대로다 (수정 전후 `games.csv` · `lives.csv` · `flies.csv` · 재생 기록이 같다).
 - **재생 기록 복사:** `ReplayBuffer.add_frame`은 값을 복사해 쌓는다. 조종기는 `propose`가 돌려준 배열을 나중에 제자리에서 고치지 않는다 (`reset_life` 포함).
 
 ## 12. 초파리 뇌 본체 (M1 뇌 ②, 총책임자 승인 2026-11-08)

@@ -2,7 +2,7 @@ import numpy as np
 from helpers import MAP, cell, make_cfg
 
 from flypac.core import directions as d
-from flypac.core.rng import make_rng
+from flypac.core.rng import game_rngs, make_rng
 from flypac.engine.fake import FakeGame
 from flypac.pacman.rule_based import RuleBasedPacman
 
@@ -10,7 +10,7 @@ from flypac.pacman.rule_based import RuleBasedPacman
 def setup():
     cfg = make_cfg()
     g = FakeGame(MAP, cfg, make_rng(0, 0, "engine"))
-    return g, RuleBasedPacman(MAP, cfg, make_rng(0, 0, "pacman"))
+    return g, RuleBasedPacman(MAP, cfg, game_rngs([0], "pacman"))
 
 
 def test_heads_to_nearest_dot():

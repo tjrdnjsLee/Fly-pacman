@@ -10,6 +10,7 @@ import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import shortest_path
 
+from flypac.core.rng import GameRngs
 from flypac.core.types import GameView
 from flypac.maps.original import MapSpec
 from flypac.pacman.base import PacmanController
@@ -18,11 +19,15 @@ _FAR = 10**6
 
 
 class RuleBasedPacman(PacmanController):
-    def __init__(self, map: MapSpec, cfg, rng: np.random.Generator):
+    def __init__(self, map: MapSpec, cfg, rngs: GameRngs):
+        """rngs: 칸별 생성기 묶음 (core.rng.game_rngs(seeds, "pacman")). 칸 b는 rngs[b]만 쓴다.
+        판이 바뀌면 실행기가 rngs.renew를 부른다 (DECISIONS 11절). 지금 규칙은 난수를 쓰지 않는다."""
+        if not isinstance(rngs, GameRngs):
+            raise TypeError("RuleBasedPacman에는 GameRngs(core.rng.game_rngs(seeds, 'pacman'))를 넘긴다")
         # TODO(미결 6): 기준값은 자리표시. 팩맨 담당이 정한다.
         self.danger_dist = float(cfg.rule_based.danger_dist)
         self.chase_dist = float(cfg.rule_based.chase_dist)
-        self.rng = rng
+        self.rngs = rngs
         self.map = map
         mask = map.move_mask["pacman"]
         rows, dirs = np.nonzero(mask)

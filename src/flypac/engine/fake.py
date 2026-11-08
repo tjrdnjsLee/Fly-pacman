@@ -42,10 +42,15 @@ class FakeGame(Game):
         self._house = np.zeros(map.nbr.shape[0], dtype=bool)
         self._house[map.house_cells] = True
         self._house[map.door_cells] = True
-        self.reset_game()
+        self._new_game()
 
     # ---- 초기화 (실행기만 부른다) ----
-    def reset_game(self) -> None:
+    def reset_game(self, rng: np.random.Generator) -> None:
+        """새 판. 엔진 난수를 이 판의 생성기로 바꾼다 (engine/game.py의 난수 계약). 가짜 엔진은 난수를 쓰지 않는다."""
+        self.rng = rng
+        self._new_game()
+
+    def _new_game(self) -> None:
         self.lives = self.lives_max
         self.dots = self.map.dots.copy()
         self.energizers = self.map.energizers.copy()

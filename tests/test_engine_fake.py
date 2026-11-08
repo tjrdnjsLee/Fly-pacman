@@ -160,7 +160,7 @@ def test_reset_is_not_automatic_and_keeps_dots_across_lives():
     left = g.dots.sum()
     g.reset_life()
     assert g.dots.sum() == left and g.pac_cell == MAP.pacman_start and not g.learning_active
-    g.reset_game()
+    g.reset_game(make_rng(0, 2, "engine"))
     assert g.dots.sum() == MAP.dots.sum() and g.lives == 3 and g.score == 0
 
 
