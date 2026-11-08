@@ -24,7 +24,7 @@ class StubGame(Game):
     def reset_life(self):
         self.resets.append("life")
 
-    def reset_game(self):
+    def reset_game(self, rng):
         self.resets.append("game")
 
 
@@ -48,7 +48,7 @@ def test_vecgame_reset_only_masked_and_no_auto_reset():
     v.step_pacman(np.zeros(3, int))
     assert all(g.resets == [] for g in v.games)
     v.reset_life(np.array([True, False, True]))
-    v.reset_game(np.array([False, True, False]))
+    v.reset_game(np.array([False, True, False]), [np.random.default_rng(i) for i in range(3)])
     assert [g.resets for g in v.games] == [["life"], ["game"], ["life"]]
 
 

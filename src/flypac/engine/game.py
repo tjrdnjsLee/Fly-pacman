@@ -1,6 +1,16 @@
 """엔진 인터페이스 (TRD 5.2). 자리 파일: 진짜 엔진은 M1(팩맨 담당)이 채운다.
 
-엔진은 스스로 초기화하지 않는다. reset_life, reset_game은 실행기만 부른다.
+엔진은 스스로 초기화하지 않는다. reset_life, reset_game은 실행기(core/tick.py)만 부른다.
+
+난수 계약 (관리자 결정, DECISIONS 3절 · 11절):
+- 판을 시작할 때마다(판 1 포함) 실행기가 `reset_game(rng)`로 그 판의 생성기를 준다.
+  rng = make_rng(시드, 판 번호, "engine"), 판 번호는 1부터.
+- 엔진은 받은 rng로 자기 난수를 바꾸고, 다음 reset_game까지 그것만 쓴다. 다른 생성기를 만들거나
+  전역 난수(np.random.*, random.*)를 쓰지 않는다. 그래서 한 칸의 엔진 난수열은 (시드, 판 번호)로만 정해지고,
+  묶음 크기 · 칸 순서와 무관하다.
+- reset_life는 난수를 바꾸지 않는다 (목숨이 바뀌어도 그 판의 난수열은 이어진다).
+- 생성자의 rng는 TRD 5.2 모양 때문에 남은 자리다. 실행기가 곧바로 reset_game(rng)를 부르므로
+  엔진은 생성자의 rng로 난수를 뽑지 않는다.
 """
 
 from __future__ import annotations
@@ -58,9 +68,11 @@ class Game:
         raise NotImplementedError
 
     def reset_life(self) -> None:
+        """새 목숨. 점 · 점수 · 목숨 수 · 난수는 그대로."""
         raise NotImplementedError
 
-    def reset_game(self) -> None:
+    def reset_game(self, rng: np.random.Generator) -> None:
+        """새 판. rng = make_rng(시드, 판 번호, "engine"): 이 판 동안 엔진이 쓰는 유일한 생성기 (모듈 docstring)."""
         raise NotImplementedError
 
 
@@ -113,10 +125,11 @@ class VecGame:
             if m:
                 g.reset_life()
 
-    def reset_game(self, mask: np.ndarray) -> None:
-        for g, m in zip(self.games, mask):
+    def reset_game(self, mask: np.ndarray, rngs) -> None:
+        """mask (B,) bool: 새 판을 시작할 게임. rngs: 칸별 엔진 생성기 (GameRngs, rngs[b]가 칸 b의 이번 판 생성기)."""
+        for b, (g, m) in enumerate(zip(self.games, mask)):
             if m:
-                g.reset_game()
+                g.reset_game(rngs[b])
 
     def retire(self, mask: np.ndarray) -> None:
         """mask (B,) bool: 은퇴시킬 게임 (모든 판을 끝낸 칸)."""

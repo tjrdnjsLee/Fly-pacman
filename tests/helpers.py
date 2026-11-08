@@ -140,10 +140,10 @@ def share_journal(runner, recorder):
     for name in ("retire", "reset_life", "reset_game"):
         original = getattr(runner.game, name)
 
-        def wrapped(mask, _name=name, _original=original):
+        def wrapped(mask, *args, _name=name, _original=original):
             if np.any(mask):
                 journal.append((f"game_{_name}", np.array(mask).copy()))
-            return _original(mask)
+            return _original(mask, *args)
 
         setattr(runner.game, name, wrapped)
     return journal
