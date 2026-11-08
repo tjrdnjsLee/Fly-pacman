@@ -1,0 +1,25 @@
+# 표현력 시험(M1 뇌 ② 단계 3)의 개발 자료 생성 설정 (DECISIONS 13.10 항목 1). 이 파일은 관리자 소유다.
+# 엔진 · 냄새 · 방출 시점은 m0_smoke.yaml의 자리표시 값을 그대로 쓴다. 자료 생성기 버전: repr_data_v1.
+experiment: brain_repr_v1
+condition: regime1        # 페로몬 장 없음: 페로몬 관측은 0
+seeds: [1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009,      # 개발-학습 1000 ~ 1013
+        1010, 1011, 1012, 1013,
+        1014, 1015, 1016, 1017, 1018, 1019]                              # 개발-평가 1014 ~ 1019
+n_games: 10               # 실행 시드 하나에 게임 10판
+
+engine: {kind: fake, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,
+         watchdog_ticks: 3000}             # 판당 상한 3,000틱 (넘으면 CENSORED로 끝남)
+time:   {v_max_tiles_per_s: 9.47}
+odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
+phero:  {D: 1.0, lam: 0.1}
+reward: {p: 0.25, q: 1.0}
+pacman: {kind: rule_based}
+rule_based: {danger_dist: 6, chase_dist: 8}
+ghosts: {kind: random}
+run:    {max_loop_ticks: 200000}
+
+# 표현력 시험 설정 (분할은 DECISIONS 13.2에 고정; 최종 검증 2000 ~ 2009는 여기서 만들지 않는다)
+repr:
+  generator_version: repr_data_v1
+  splits: {dev_train: [1000, 1013], dev_eval: [1014, 1019]}   # 닫힌 구간
