@@ -30,7 +30,7 @@ def test_original_maze_decision_samples(rc, heading, options, decide):
 
 @pytest.mark.parametrize('action,target', [(d.FORWARD, (1, 7)), (d.RIGHT, (2, 6))])
 def test_junction_commits_chosen_direction(action, target):
-    game = new_game(fly_speed=1)
+    game = new_game(fly_speed=1, house_personal_dots=[0, 30, 30, 60])
     game.fly_cell[0], game.fly_dir[0] = cell(1, 6), d.EAST
     assert game.decision_info()[1][0]
     events, moved, committed, active = game.step_flies(np.array([action, -1, -1, -1]))

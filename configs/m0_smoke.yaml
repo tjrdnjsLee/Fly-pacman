@@ -7,7 +7,9 @@ n_games: 2
 
 engine: {kind: fake, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
          release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,
-         watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71}  # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
+         watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71,
+         house_personal_dots: [0, 0, 30, 60], house_global_dots: [7, 17, 32],
+         house_no_dot_s: 4}  # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
 time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
 phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)

@@ -25,12 +25,27 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
+
 import numpy as np
 
 from flypac.core import directions as d
+from flypac.core.config import load_config
 from flypac.core.events import Event, Kind, Winner
+from flypac.core.timing import config_ticks
 from flypac.core.types import GameView
 from flypac.maps.original import MapSpec
+
+
+@lru_cache(maxsize=1)
+def _default_engine_settings():
+    """새 엔진 키가 없는 기존 설정은 저장소의 공통 참고값을 읽는다."""
+    return load_config(Path(__file__).resolve().parents[3] / "configs" / "m0_smoke.yaml").engine
+
+
+def _engine_setting(engine, key):
+    return engine[key] if key in engine else _default_engine_settings()[key]
 
 
 def advance_accumulator(accumulator: float, speed: float) -> tuple[float, bool]:
@@ -57,6 +72,9 @@ class Game:
         self.score_dot = int(e.score_dot)
         self.score_energizer = int(e.score_energizer)
         self.watchdog = int(e.watchdog_ticks)
+        self.house_personal_limits = _engine_setting(e, "house_personal_dots")
+        self.house_global_limits = _engine_setting(e, "house_global_dots")
+        self.house_no_dot_ticks = config_ticks(cfg, _engine_setting(e, "house_no_dot_s"))
         if not (0 <= self.v_pac <= 1 and 0 <= self.v_fly <= 1):
             raise ValueError("속도는 0 이상 1 이하여야 한다 (TRD 7.2)")
         if not 0 <= self.v_dot <= self.v_pac or (self.v_pac > 0 and self.v_dot == 0):
@@ -88,10 +106,12 @@ class Game:
             self.score += self.score_dot
             self.pac_acc -= self.v_pac / self.v_dot - 1
             events.append(self._ev(Kind.DOT))
+            self._count_house_dot()
         elif self.energizers[self.pac_cell]:
             self.energizers[self.pac_cell] = False
             self.score += self.score_energizer
             events.append(self._ev(Kind.ENERGIZER))
+            self._count_house_dot()
             # 겁먹음 · z 전환 · 연속 사냥 초기화는 단계 7에서 구현한다.
         if not (self.dots.any() or self.energizers.any()):
             events.append(self._ev(Kind.GAME_OVER, cause=Winner.PACMAN))
@@ -102,6 +122,50 @@ class Game:
 
     def _ev(self, kind: Kind, fly: int = -1, cause=None) -> Event:
         return Event(kind, self.index, self.tick, fly, self.learning_active, cause)
+
+    def _waiting_fly(self) -> int | None:
+        return next((k for k in range(self.F) if not self.released[k] and not self.exiting[k]), None)
+
+    def _count_house_dot(self) -> None:
+        self.last_house_dot_tick = self.tick
+        if self.use_global_house_count:
+            self.house_global_count += 1
+        else:
+            waiting = self._waiting_fly()
+            if waiting is not None:
+                self.house_personal_count[waiting] += 1
+
+    def _step_house(self, k: int, events: list[Event]) -> bool:
+        """문 열로 이동한 뒤 북쪽으로 한 칸씩 나간다. 문 밖에서만 방출을 기록한다."""
+        if not self.exiting[k]:
+            if self._waiting_fly() != k:
+                return False
+            if self.use_global_house_count:
+                ready = self.house_global_count >= self.house_global_limits[k - 1]
+            else:
+                ready = self.house_personal_count[k] >= self.house_personal_limits[k]
+            if not ready:
+                return False
+            self.exiting[k] = True
+
+        self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self.v_fly)
+        if not will_move:
+            return False
+        _, column = self.map.cell_rc[self.fly_cell[k]]
+        _, exit_column = self.map.cell_rc[self.map.fly_starts[0]]
+        direction = d.NORTH
+        if column != exit_column:
+            direction = d.EAST if column < exit_column else d.WEST
+        self.fly_dir[k] = direction
+        self.fly_cell[k] = self.map.nbr[self.fly_cell[k], direction]
+        if not self._house[self.fly_cell[k]]:
+            self.exiting[k] = False
+            self.released[k] = True
+            if not self.learning_active and self.released.all():
+                events.append(self._ev(Kind.ALL_RELEASED, k))
+                self.learning_active = True
+            self._collision_with_pacman(events, k)
+        return True
 
     def _collision_with_pacman(self, events: list[Event], fly: int | None = None) -> None:
         """캐릭터마다 이동 직후 검사한다. 맞교환도 팩맨 단계에서 먼저 포획된다."""
@@ -133,8 +197,10 @@ class Game:
             return events, moved, committed, active
         for k in range(self.F):
             active[k] = self.learning_active
-            # 집 안의 출구 통과 · 방출 카운터는 단계 6에서 추가한다.
             if not self.released[k] or self._house[self.fly_cell[k]]:
+                moved[k] = self._step_house(k, events)
+                if self.frozen:
+                    break
                 continue
             self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self.v_fly)
             if not will_move:
@@ -177,6 +243,11 @@ class Game:
         events: list[Event] = []
         if not self.frozen:
             self.life_tick += 1
+            if self.tick - self.last_house_dot_tick >= self.house_no_dot_ticks:
+                waiting = self._waiting_fly()
+                if waiting is not None:
+                    self.exiting[waiting] = True
+                    self.last_house_dot_tick = self.tick
             if self.tick + 1 >= self.watchdog:
                 events.append(self._ev(Kind.GAME_OVER, cause=Winner.CENSORED))
                 self.frozen = True
@@ -240,6 +311,11 @@ class Game:
         self.fly_dir = np.array([d.WEST] + [d.NORTH] * (self.F - 1), dtype=np.int64)
         self.fly_acc = np.zeros(self.F)
         self.released = ~self._house[self.fly_cell]  # 처음부터 집 밖인 1번만 이동한다.
+        self.exiting = np.zeros(self.F, dtype=bool)
+        self.house_personal_count = np.zeros(self.F, dtype=np.int64)
+        self.house_global_count = 0
+        self.use_global_house_count = self.lives < self.lives_max
+        self.last_house_dot_tick = self.tick - 1
         # DECISIONS 4.1의 7~11행은 후속 범위. 절대 방향 예약 자리만 확보한다.
         self.pending_fly_dir = np.full(self.F, -1, dtype=np.int64)
         self.life_tick = 0
