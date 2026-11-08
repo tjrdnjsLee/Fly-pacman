@@ -125,10 +125,48 @@ class Game:
         결정으로 받아들였다 (복도 · 집 출구 이동은 거짓, 지연 반전은 저장한 틱에 참). 언제 참인지는
         DECISIONS 4절의 표를 그대로 따른다.
         """
+        events: list[Event] = []
+        moved = np.zeros(self.F, dtype=bool)
+        committed = np.zeros(self.F, dtype=bool)
+        active = np.full(self.F, self.learning_active, dtype=bool)
         if self.frozen:
-            return ([], np.zeros(self.F, dtype=bool), np.zeros(self.F, dtype=bool),
-                    np.full(self.F, self.learning_active, dtype=bool))
-        raise NotImplementedError
+            return events, moved, committed, active
+        for k in range(self.F):
+            active[k] = self.learning_active
+            # 집 안의 출구 통과 · 방출 카운터는 단계 6에서 추가한다.
+            if not self.released[k] or self._house[self.fly_cell[k]]:
+                continue
+            self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self.v_fly)
+            if not will_move:
+                continue
+            options = self._fly_options(k)
+            if not options:
+                continue
+            action, heading = int(actions[k]), int(self.fly_dir[k])
+            if action >= 0:
+                if action >= len(d.EGO_NAMES):
+                    raise ValueError(f"초파리 {k}: 불가능한 행동 {action}")
+                direction = int(d.ego_to_abs(heading, action))
+                if direction not in options:
+                    raise ValueError(f"초파리 {k}: 불가능한 행동 {action} (가능한 절대 방향 {options})")
+            else:
+                direction = heading if heading in options else options[0]
+            self.fly_dir[k] = direction
+            self.fly_cell[k] = int(self.map.nbr[self.fly_cell[k], direction])
+            moved[k] = True
+            committed[k] = action >= 0 and len(options) >= 2
+            self._collision_with_pacman(events, k)
+            if self.frozen:  # 포획을 만든 결정은 유지하고, 뒤 초파리의 제안은 버린다.
+                break
+        return events, moved, committed, active
+
+    def _fly_options(self, k: int) -> list[int]:
+        """집 재진입과 반전을 막고, 막다른 길에서만 반전을 허용한다 (TRD 4.7)."""
+        neighbors = self.map.nbr[self.fly_cell[k]]
+        options = [direction for direction, neighbor in enumerate(neighbors)
+                   if neighbor >= 0 and not self._house[neighbor]]
+        forward = [direction for direction in options if direction != d.opposite(self.fly_dir[k])]
+        return forward or options
 
     def tick_timers(self) -> list[Event]:
         """동결이 아니면 파워 · 과일 · 유령 집 · 엘로이. 틱 번호(view.tick)는 동결된 틱에도 1 올린다.
@@ -172,7 +210,17 @@ class Game:
 
     def decision_info(self) -> tuple[np.ndarray, np.ndarray]:
         """(legal (F,4) bool, decide (F,) bool)."""
-        raise NotImplementedError
+        legal = np.zeros((self.F, len(d.EGO_NAMES)), dtype=bool)
+        decide = np.zeros(self.F, dtype=bool)
+        for k in range(self.F):
+            if not self.released[k] or self._house[self.fly_cell[k]]:
+                continue
+            options = self._fly_options(k)
+            for direction in options:
+                legal[k, int(d.abs_to_ego(self.fly_dir[k], direction))] = True
+            will_move = self.fly_acc[k] + self.v_fly >= 1.0
+            decide[k] = len(options) >= 2 and will_move and not self.frozen
+        return legal, decide
 
     def retire(self) -> None:
         """모든 판을 끝낸 칸을 은퇴시킨다. 새 판은 시작하지 않고 `learning_active`만 거짓으로 내린다. 동결은 유지.
@@ -191,7 +239,9 @@ class Game:
         self.fly_cell = m.fly_starts.astype(np.int64).copy()
         self.fly_dir = np.array([d.WEST] + [d.NORTH] * (self.F - 1), dtype=np.int64)
         self.fly_acc = np.zeros(self.F)
-        self.released = np.zeros(self.F, dtype=bool)
+        self.released = ~self._house[self.fly_cell]  # 처음부터 집 밖인 1번만 이동한다.
+        # DECISIONS 4.1의 7~11행은 후속 범위. 절대 방향 예약 자리만 확보한다.
+        self.pending_fly_dir = np.full(self.F, -1, dtype=np.int64)
         self.life_tick = 0
         self.learning_active = False
         self.frozen = False
