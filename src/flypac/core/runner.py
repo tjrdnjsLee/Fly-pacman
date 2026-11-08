@@ -110,7 +110,11 @@ def build_runner(cfg, recorder=None) -> Runner:
     elif cfg.ghosts.kind == "flybrain":
         from flypac.brain.flybrain import FlyBrain, load_brain_config
         ghosts = FlyBrain(load_brain_config(cfg.ghosts.config), B, seeds, condition=str(condition))
+    elif cfg.ghosts.kind == "original":
+        from flypac.ghosts.original import OriginalGhosts
+        ghosts = OriginalGhosts(cfg, B, game_rngs(seeds, "ghost"))
+        game.configure_condition(cfg, str(condition))
     else:
-        raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: original(B1)
+        raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")
     regime = make_regime(cfg)
     return Runner(cfg, amap, game, engine_rngs, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())

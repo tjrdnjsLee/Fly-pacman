@@ -89,6 +89,8 @@ class PacmanTrainEnv:
         self.ghost_kind, self.condition = ghosts, str(condition)
         self.ghosts = make_ghosts(ghosts, cfg, self.B, self.slot_seeds)
         check_condition(self.ghosts, self.condition)
+        if cfg.engine.kind == "real":
+            self.game.configure_condition(cfg, self.condition)
         self.F = 4
         H, W = self.map.grid.shape
         self.grid_shape = (NUM_CHANNELS * int(p.obs.frame_stack), H, W)
@@ -113,6 +115,8 @@ class PacmanTrainEnv:
         """상대 유령을 바꾸고 모든 게임을 새로 시작한다 (커리큘럼 단계 전환)."""
         ghosts = make_ghosts(kind, self.cfg, self.B, self.slot_seeds)
         check_condition(ghosts, condition)
+        if self.cfg.engine.kind == "real":
+            self.game.configure_condition(self.cfg, condition)
         self.ghost_kind, self.condition, self.ghosts = kind, str(condition), ghosts
         self.core.ghosts, self.core.condition = ghosts, self.condition
         self.core.pass_views = self.condition == "b1"

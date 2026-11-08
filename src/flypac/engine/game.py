@@ -35,6 +35,7 @@ from flypac.core.config import load_config
 from flypac.core.events import Event, Kind, Winner, ZCause
 from flypac.core.timing import config_ticks
 from flypac.core.types import GameView
+from flypac.engine.b1 import B1GameView, B1Motion
 from flypac.maps.original import MapSpec
 
 
@@ -105,7 +106,12 @@ class Game:
         self._house[map.door_cells] = True
         self._tunnel = np.zeros_like(self._house)
         self._tunnel[map.tunnel_cells] = True
+        self.b1: B1Motion | None = None
         self._new_game()
+
+    def configure_condition(self, cfg, condition: str) -> None:
+        """조건에 맞는 이동 규칙을 판 시작 전에 고른다."""
+        self.b1 = B1Motion(cfg, self.map) if condition == "b1" else None
 
     def step_pacman(self, action: int) -> list[Event]:
         """팩맨 이동, 먹기, 충돌. 목숨이 끝나면 그 틱 동안 동결. action: 절대 방향."""
@@ -140,6 +146,8 @@ class Game:
             self.ghost_streak = 0
             events.append(self._ev(Kind.POWER_START))
             self._set_frightened(True, ZCause.POWER_START, events)
+            if self.b1 is not None:
+                self.b1.queue_reverse()
         if self.fruit_ticks and self.pac_cell == self.map.fruit_cell:
             self.fruit_ticks = 0
             self.score += self.score_fruit
@@ -215,6 +223,9 @@ class Game:
         if not self._house[self.fly_cell[k]]:
             self.exiting[k] = False
             self.released[k] = True
+            if self.b1 is not None:
+                self.fly_dir[k] = d.EAST if self.b1.reverse[k] else d.WEST
+                self.b1.reverse[k] = False
             if not self.learning_active and self.released.all():
                 events.append(self._ev(Kind.ALL_RELEASED, k))
                 self.learning_active = True
@@ -235,6 +246,8 @@ class Game:
                 self.fly_acc[k] = 0.0
                 self.exiting[k] = bool(self._house[self.fly_cell[k]])
                 self.fly_z[k] = False
+                if self.b1 is not None:
+                    self.b1.reverse[k] = False
                 events.append(self._ev(Kind.Z_CHANGE, k, ZCause.REVIVE))
                 continue
             events.append(self._ev(Kind.CATCH, k))
@@ -268,10 +281,18 @@ class Game:
             self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self._fly_speed(k))
             if not will_move:
                 continue
-            options = self._fly_options(k)
+            heading = int(self.fly_dir[k])
+            if self.b1 is not None and self.b1.reverse[k]:
+                self.b1.reverse[k] = False
+                back = int(d.opposite(heading))
+                neighbor = self.map.nbr[self.fly_cell[k], back]
+                options = [back] if neighbor >= 0 and not self._house[neighbor] else self._fly_options(k)
+                action = -1  # 원작의 강제 반전은 조종기 제안·확정과 무관하다.
+            else:
+                options = self._fly_options(k)
+                action = int(actions[k])
             if not options:
                 continue
-            action, heading = int(actions[k]), int(self.fly_dir[k])
             if action >= 0:
                 if action >= len(d.EGO_NAMES):
                     raise ValueError(f"초파리 {k}: 불가능한 행동 {action}")
@@ -294,6 +315,8 @@ class Game:
         neighbors = self.map.nbr[self.fly_cell[k]]
         options = [direction for direction, neighbor in enumerate(neighbors)
                    if neighbor >= 0 and not self._house[neighbor]]
+        if self.b1 is not None and not self.fly_z[k] and self.fly_cell[k] in self.b1.no_up:
+            options = [direction for direction in options if direction != d.NORTH]
         forward = [direction for direction in options if direction != d.opposite(self.fly_dir[k])]
         return forward or options
 
@@ -311,6 +334,8 @@ class Game:
                 if not self.power_ticks:
                     events.append(self._ev(Kind.POWER_END))
                     self._set_frightened(False, ZCause.POWER_END, events)
+            elif self.b1 is not None:
+                self.b1.tick()
             if self.fruit_ticks:
                 self.fruit_ticks -= 1
             if self.tick - self.last_house_dot_tick >= self.house_no_dot_ticks:
@@ -327,7 +352,7 @@ class Game:
 
     def view(self) -> GameView:
         """현재 상태의 읽기 전용 사본."""
-        return GameView(
+        fields = dict(
             pac_cell=self.pac_cell,
             pac_dir=self.pac_dir,
             lives=self.lives,
@@ -349,6 +374,9 @@ class Game:
             pac_acc=float(self.pac_acc),
             fly_acc=self.fly_acc.copy(),
         )
+        if self.b1 is not None:
+            return B1GameView(**fields, scatter=self.b1.scatter)
+        return GameView(**fields)
 
     def decision_info(self) -> tuple[np.ndarray, np.ndarray]:
         """(legal (F,4) bool, decide (F,) bool)."""
@@ -356,6 +384,8 @@ class Game:
         decide = np.zeros(self.F, dtype=bool)
         for k in range(self.F):
             if not self.released[k] or self._house[self.fly_cell[k]]:
+                continue
+            if self.b1 is not None and self.b1.reverse[k]:
                 continue
             options = self._fly_options(k)
             for direction in options:
@@ -402,6 +432,8 @@ class Game:
         self.life_tick = 0
         self.learning_active = False
         self.frozen = False
+        if self.b1 is not None:
+            self.b1.reset_life()
 
     def reset_game(self, rng: np.random.Generator) -> None:
         """새 판의 생성기를 받아 다음 판까지 사용한다 (DECISIONS 3절 · 11절)."""
@@ -435,6 +467,10 @@ class VecGame:
         self.games = [self.game_cls(map, cfg, rng) for rng in rngs]
         for i, g in enumerate(self.games):
             g.index = i
+
+    def configure_condition(self, cfg, condition: str) -> None:
+        for game in self.games:
+            game.configure_condition(cfg, condition)
 
     def step_pacman(self, actions: np.ndarray) -> list[list[Event]]:
         """actions (B,) 절대 방향."""
