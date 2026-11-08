@@ -1,7 +1,7 @@
 # M0 연기 시험: 게임 2개(B=2), 판 2개, 규칙 기반 팩맨, 무작위 초파리, 체제1.
 # 모든 값은 자리표시다 (TRD 13.1, 17절 미결). 이 파일은 관리자 소유다.
 experiment: m0_smoke
-condition: regime1        # regime1 | regime2 | regime3 | b0 | b0p | b1
+condition: regime1        # regime1 | regime2 | regime3 | b0 | b1  (b0p는 없앴다: DECISIONS 10.4)
 seeds: [0, 1]
 n_games: 2
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core.events import Event, Kind
-from flypac.core.rng import GameRngs, game_rngs, make_rng
+from flypac.core.rng import GameRngs, RngGroup, game_rngs, make_rng
 from flypac.core.types import FlyObs
 from flypac.engine.fake import FakeVecGame
 from flypac.engine.game import VecGame
@@ -127,7 +127,8 @@ class Runner:
                     Sp[b, now[b].fly_cell[k]] += em[k]
             self.phero.step(Sp, step_mask)
 
-        brain = {"action": fly_act, "pi": getattr(self.ghosts, "last_pi", np.zeros((B, F, 4)))}
+        brain = {"action": fly_act, "pi": getattr(self.ghosts, "last_pi", np.zeros((B, F, 4))),
+                 "committed": committed, "moved": moved}  # 재생 로그 형식 3 (DECISIONS 6절)
         if hasattr(self.ghosts, "replay_info"):  # 뇌 필드 (TRD 19.13): 뇌 담당이 제공
             brain.update(self.ghosts.replay_info())
         R = np.zeros((B, F))                                              # 11
@@ -177,7 +178,7 @@ class Runner:
         self.finished |= retired
         self.game_no[more] += 1
         bundle = getattr(self.ghosts, "rngs", None)
-        if isinstance(bundle, GameRngs):          # 새 판: (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2)
+        if isinstance(bundle, (GameRngs, RngGroup)):  # 새 판: (시드, 판 번호, 용도)별 생성기로 바꾼다 (TRD 13.2)
             bundle.renew(more, self.game_no)
         self.game.retire(retired)
         self.game.reset_game(more)
@@ -215,8 +216,12 @@ def build_runner(cfg, recorder=None) -> Runner:
     if cfg.pacman.kind != "rule_based":
         raise NotImplementedError(f"pacman.kind={cfg.pacman.kind}")
     pacman = RuleBasedPacman(amap, cfg, make_rng(seeds[0], 0, "pacman"))
-    if cfg.ghosts.kind != "random":
-        raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: flybrain(뇌 담당), original(B1)
-    ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
+    if cfg.ghosts.kind == "random":
+        ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
+    elif cfg.ghosts.kind == "flybrain":
+        from flypac.brain.flybrain import FlyBrain, load_brain_config
+        ghosts = FlyBrain(load_brain_config(cfg.ghosts.config), B, seeds, condition=str(condition))
+    else:
+        raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")  # TODO: original(B1)
     regime = make_regime(cfg)
     return Runner(cfg, amap, game, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())

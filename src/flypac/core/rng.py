@@ -12,6 +12,9 @@ PURPOSES = {
     "ghost": 3,
     "synth": 4,
     "replay": 5,
+    "kc_tiebreak": 6,   # 뇌: 상위 k 경계의 KC 동률 끊기 (M1 뇌 ②)
+    "brain_action": 7,  # 뇌: 행동 표본
+    "repr_synth": 8,    # 표현력 시험의 합성 자료
 }
 
 
@@ -61,6 +64,43 @@ class GameRngs:
         self.game_no = np.asarray(state["game_no"], dtype=np.int64).copy()
         for g, st in zip(self._gens, state["states"]):
             g.bit_generator.state = st
+
+
+class RngGroup:
+    """용도가 여럿인 조종기의 칸별 생성기 묶음들 (용도 → GameRngs). 실행기는 GameRngs처럼 renew만 부른다.
+
+    모든 묶음은 같은 시드 목록 · 같은 판 번호를 가진다. 판이 바뀌면 묶음 전체를 다시 만든다 (DECISIONS 11절).
+    """
+
+    def __init__(self, seeds, purposes, game_no=1):
+        purposes = list(purposes)
+        if not purposes or len(set(purposes)) != len(purposes):
+            raise ValueError("용도 목록은 비어 있지 않고 겹치지 않아야 한다")
+        self._bundles = {p: GameRngs(seeds, p, game_no) for p in purposes}
+
+    def __getitem__(self, purpose: str) -> GameRngs:
+        return self._bundles[purpose]
+
+    @property
+    def purposes(self) -> tuple[str, ...]:
+        return tuple(self._bundles)
+
+    @property
+    def game_no(self) -> np.ndarray:
+        return next(iter(self._bundles.values())).game_no
+
+    def renew(self, mask, game_no) -> None:
+        for bundle in self._bundles.values():
+            bundle.renew(mask, game_no)
+
+    def state_dict(self) -> dict:
+        return {p: b.state_dict() for p, b in self._bundles.items()}
+
+    def load_state_dict(self, state: dict) -> None:
+        if set(state) != set(self._bundles):
+            raise ValueError(f"난수 용도가 다르다: 저장 {sorted(state)}, 현재 {sorted(self._bundles)}")
+        for p, b in self._bundles.items():
+            b.load_state_dict(state[p])
 
 
 def game_rngs(seeds, purpose: str, game_no=1) -> GameRngs:

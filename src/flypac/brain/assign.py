@@ -22,8 +22,17 @@ import numpy as np
 from flypac.core.directions import EGO_NAMES
 
 N_ACTIONS = len(EGO_NAMES)
-CHANNEL_NAMES = ("odor_left", "odor_forward", "odor_right", "odor_back", "z",
-                 "phero_left", "phero_forward", "phero_right", "phero_back")
+
+
+def channel_names(ego_names=None) -> tuple[str, ...]:
+    """PN 채널 이름. 자기중심 이름은 core.directions.EGO_NAMES에서 만든다 (Codex F10, 따로 적지 않는다)."""
+    if ego_names is None:
+        from flypac.core import directions
+        ego_names = directions.EGO_NAMES
+    return (tuple(f"odor_{n}" for n in ego_names) + ("z",) + tuple(f"phero_{n}" for n in ego_names))
+
+
+CHANNEL_NAMES = channel_names()
 N_CHANNELS = len(CHANNEL_NAMES)
 ODOR_CHANNELS = (0, 1, 2, 3)
 Z_CHANNEL = 4

@@ -1,42 +1,374 @@
-"""초파리 뇌 (TRD 5.5, 10절). 자리 파일: 구현은 뇌 담당. B0, B0'는 같은 코드에서 설정으로 만든다."""
+"""초파리 뇌 (TRD 5.5, 10절; M1 뇌 작업 지시서 ② 2절; DECISIONS 10.3 · 12절).
+
+한 틱 계산 (살아 있는 게임의 네 초파리 모두, 집 안 · 방출 전 포함):
+    p̃_c = α_c p_c                    (PN 입력 사본에만 α_c. 본능항에는 곱하지 않는다)
+    u_i = Σ_c J_ic p̃_c
+    k_i = 1[u_i > θ 그리고 상위 k]     (k = ceil(ρ N_KC), 동률은 게임별 난수 "kc_tiebreak")
+    m_a = (1/(k|a|)) Σ_{j∈a} Σ_i (w_ij - w0_ij) k_i     (기준선 빼기, DECISIONS 10.3)
+    x_a ← (1-κ) x_a + m_a + g odor_a,   h_i ← (1-κ) h_i + k_i
+decide가 참이면 π_a ∝ exp(β x_a) (합법 행동만), a* ~ π (게임별 난수 "brain_action").
+
+`propose`는 틱당 한 번 증거(x, h)를 누적하고 결정 시점이면 (π, a*)를 보관한다. 학습 상태(w, e, R̄, R_n)는
+바꾸지 않는다. 같은 틱 중복 호출은 오류 (깃발은 조종기 전체에 하나: propose가 세우고 commit이 내린다).
+
+내부에서는 w 대신 변화분 dw = w - w0를 둔다 (w ≥ 0 ⇔ dw ≥ -w0). w0은 불변 참조 배열 하나를 모든 게임 ·
+초파리가 읽기 전용으로 공유한다. B0 = 같은 코드, w = w0에서 시작, η = 0 (지시서 2.5).
+"""
 
 from __future__ import annotations
 
+import hashlib
+import math
+from dataclasses import dataclass
+from pathlib import Path
+
 import numpy as np
 
+from flypac.brain import assign as A
 from flypac.brain.base import GhostController
+from flypac.core.config import Config, load_config
+from flypac.core.rng import RngGroup
 from flypac.core.types import FlyObs, GameView
 
+REPO = Path(__file__).resolve().parents[3]
+RNG_PURPOSES = ("kc_tiebreak", "brain_action")
+LEARNING_CONDITIONS = ("regime1", "regime2", "regime3")
+B0 = "b0"
+STATE_FORMAT = 1
+
+
+def repo_path(path) -> Path:
+    """설정의 상대 경로는 저장소 루트 기준."""
+    p = Path(path)
+    return p if p.is_absolute() else REPO / p
+
+
+def file_sha256(path) -> str:
+    h = hashlib.sha256()
+    with open(repo_path(path), "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_brain_config(path) -> Config:
+    return load_config(repo_path(path))
+
+
+# ---------------------------------------------------------------- 회로
+
+@dataclass(frozen=True)
+class Circuit:
+    """뇌가 쓰는 회로. 배열은 모두 읽기 전용."""
+    J: np.ndarray            # (N_KC, 9) 채널 단위
+    alpha: np.ndarray        # (9,) 채널 이득 α_c
+    w0: np.ndarray           # (N_KC, N_MBON) 정규화된 초기 가중치 (불변 참조)
+    M: np.ndarray            # (N_KC, N_MBON) bool 연결 마스크
+    mbon_bundle: np.ndarray  # (N_MBON,) 행동 묶음 번호 (자기중심)
+    pn_channel: np.ndarray   # (N_PN,) 채널 번호
+    source_hash: str         # 회로 파일 sha256
+    seed: int                # 배정 시드
+
+    @property
+    def n_kc(self) -> int:
+        return self.J.shape[0]
+
+    @property
+    def n_mbon(self) -> int:
+        return self.w0.shape[1]
+
+
+def _readonly(a: np.ndarray) -> np.ndarray:
+    a = np.array(a, copy=True)
+    a.setflags(write=False)
+    return a
+
+
+def build_circuit(raw_path, assign_cfg: Config | dict, seed: int) -> Circuit:
+    """원본 회로 파일과 배정 설정 · 시드로 채널 단위 회로를 만든다 (DECISIONS 10.1 규칙 2 · 3 · 4)."""
+    raw = A.load_raw(repo_path(raw_path))
+    acfg = assign_cfg
+    pher = list(acfg["pheromone_glomeruli"])
+    branch = str(acfg["branch"])
+    if branch == "auto":
+        branch = "G" if A.branch_p_conditions(raw, pher, float(acfg["branch_p_max_ratio"]))["use_g"] else "P"
+    w0 = A.normalized_w0(raw.W0)
+    labels, _ = A.assign_mbon_groups(A.class_mass(w0, raw.kc_class), int(acfg["mbon_groups"]["seed"]),
+                                     int(acfg["mbon_groups"]["max_passes"]))
+    gch = A.assign_pn_channels(raw.glom_names, int(seed), branch, pher)
+    pch = A.pn_channels(raw.pn_glom, raw.glom_names, gch)
+    J = A.channel_matrix(raw.J_pn, pch)
+    _, alpha, ok = A.channel_gains(J)
+    if not ok:
+        raise ValueError(f"배정 시드 {seed}: S_c = 0인 채널이 있어 α_c를 정할 수 없다 (DECISIONS 10.1 규칙 4)")
+    return Circuit(J=_readonly(J.astype(np.float64)), alpha=_readonly(alpha), w0=_readonly(w0),
+                   M=_readonly(raw.W0 > 0), mbon_bundle=_readonly(labels.astype(np.int64)),
+                   pn_channel=_readonly(pch), source_hash=file_sha256(raw_path), seed=int(seed))
+
+
+def circuit_from_config(cfg: Config) -> Circuit:
+    c = cfg.circuit
+    return build_circuit(c.raw, load_config(repo_path(c.assign)), int(c.seed))
+
+
+# ---------------------------------------------------------------- 순수 계산 (표현력 시험에서도 쓴다)
+
+def pn_input(odor: np.ndarray, z: np.ndarray, phero: np.ndarray) -> np.ndarray:
+    """채널 순서 (냄새 좌 · 앞 · 우 · 뒤, z, 페로몬 좌 · 앞 · 우 · 뒤). 모양 (..., 9). α_c는 곱하지 않는다."""
+    z = np.asarray(z, dtype=np.float64)[..., None]
+    return np.concatenate([np.asarray(odor, np.float64), z, np.asarray(phero, np.float64)], axis=-1)
+
+
+def kc_drive(p: np.ndarray, circuit: Circuit) -> np.ndarray:
+    """u = J (α ⊙ p). p (..., 9) → (..., N_KC)."""
+    return (p * circuit.alpha) @ circuit.J.T
+
+
+def kc_select(u: np.ndarray, theta: float, k: int, row_rngs) -> np.ndarray:
+    """k_i = 1[u_i > θ 그리고 u_i가 상위 k 안]. u (R, N_KC) → (R, N_KC) bool.
+
+    부등호는 엄격하다. 상위 k 경계의 동률은 행마다 row_rngs[r]로 끊는다 (u에 잡음을 더하지 않는다).
+    난수는 경계에 실제로 동률이 걸린 행에서만 뽑는다.
+    """
+    u = np.asarray(u)
+    out = u > theta
+    n_on = out.sum(axis=1)
+    over = np.flatnonzero(n_on > k)
+    if over.size == 0:
+        return out
+    kth = np.partition(u[over], -k, axis=1)[:, -k]  # k번째로 큰 값 (> θ: 켜질 후보가 k개를 넘으므로)
+    for r, v in zip(over, kth):
+        row = u[r]
+        above = row > v
+        ties = np.flatnonzero(row == v)
+        slots = k - int(above.sum())
+        sel = above
+        if slots == ties.size:
+            sel = sel.copy()
+            sel[ties] = True
+        else:
+            sel = sel.copy()
+            sel[row_rngs[r].choice(ties, size=slots, replace=False)] = True
+        out[r] = sel
+    return out
+
+
+# ---------------------------------------------------------------- 뇌
 
 class FlyBrain(GhostController):
     """views를 받지 않는다 (TRD 원칙 2)."""
 
-    def __init__(self, cfg, B: int, rng: np.random.Generator):
-        raise NotImplementedError
+    uses_views = False
 
+    def __init__(self, cfg: Config, B: int, seeds, *, condition: str = "regime1",
+                 circuit: Circuit | None = None):
+        """cfg: 뇌 설정 (configs/brain_v1.yaml). seeds: 칸별 실행 시드 (B,). condition: 실행 조건.
+
+        조건 b0은 w = w0에서 시작하고 η = 0이다 (지시서 2.5). b0p는 없앴다 (오류). b1은 뇌가 아니다.
+        """
+        condition = str(condition)
+        if condition == "b0p":
+            raise ValueError("조건 b0p는 없앴다: 기준선 빼기로 B0와 같은 정책이다 (DECISIONS 10.4, 본 실험 5조건)")
+        if condition not in LEARNING_CONDITIONS + (B0,):
+            raise ValueError(f"초파리 뇌가 받지 않는 조건: {condition!r}")
+        seeds = [int(s) for s in seeds]
+        if len(seeds) != B:
+            raise ValueError("seeds의 길이는 B와 같아야 한다")
+        self.cfg, self.B, self.F = cfg, int(B), 4
+        self.condition = condition
+        self.config_hash = cfg.hash()
+        self.circuit = circuit if circuit is not None else circuit_from_config(cfg)
+        c = self.circuit
+        self.n_kc, self.n_mbon = c.n_kc, c.n_mbon
+        self.rho, self.theta = float(cfg.kc.rho), float(cfg.kc.theta)
+        self.k = int(math.ceil(self.rho * self.n_kc - 1e-9))  # 부동소수점 올림 오차 방지
+        if not 1 <= self.k <= self.n_kc:
+            raise ValueError(f"k = ceil(ρ N_KC) = {self.k}가 범위 밖이다")
+        L = cfg.learn
+        self.kappa, self.g, self.beta = float(L.kappa), float(L.g), float(L.beta)
+        self.eta = 0.0 if condition == B0 else float(L.eta)
+        self.alpha_rbar, self.gamma = float(L.alpha_rbar), float(L.gamma)
+
+        n_act = A.N_ACTIONS
+        size = np.bincount(c.mbon_bundle, minlength=n_act)
+        if (size == 0).any():
+            raise ValueError("빈 행동 묶음이 있다")
+        # bundle_mat[j, a] = 1/(k|a|) (j ∈ a): m = (k_vec · dw) @ bundle_mat. 흔적 계수는 같은 값을 쓴다
+        self._bundle_mat = np.zeros((self.n_mbon, n_act))
+        self._bundle_mat[np.arange(self.n_mbon), c.mbon_bundle] = 1.0 / (self.k * size[c.mbon_bundle])
+        self._coef = self._bundle_mat[np.arange(self.n_mbon), c.mbon_bundle]  # (N_MBON,) 1/(k|a(j)|)
+        self._neg_w0 = -c.w0  # w ≥ 0 ⇔ dw ≥ -w0
+
+        self.rngs = RngGroup(seeds, RNG_PURPOSES)
+        B, F = self.B, self.F
+        self.dw = np.zeros((B, F, self.n_kc, self.n_mbon))   # w - w0
+        self.e = np.zeros_like(self.dw)
+        self.rbar = np.zeros((B, F))
+        self.Rn = np.zeros((B, F))
+        self.x = np.zeros((B, F, n_act))
+        self.h = np.zeros((B, F, self.n_kc))
+        self._pi = np.zeros((B, F, n_act))
+        self._a = np.full((B, F), -1, dtype=np.int64)
+        self._has_prop = np.zeros((B, F), dtype=bool)
+        self._active = np.zeros((B, F), dtype=bool)  # 마지막 commit에서 받은 학습 활성 (flush_learning용)
+        self._proposed = False                        # 같은 틱 중복 propose 감지 (조종기 전체에 하나)
+        self.last_pi = np.zeros((B, F, n_act))
+        self.last_kc = np.zeros((B, F, self.n_kc), dtype=bool)
+        self.last_m = np.zeros((B, F, n_act))
+
+    # ---- 읽기 ----
+    @property
+    def w(self) -> np.ndarray:
+        """현재 가중치 w = w0 + dw (새 배열)."""
+        return self.circuit.w0 + self.dw
+
+    @property
+    def channel_names(self) -> tuple[str, ...]:
+        return A.channel_names()
+
+    def forward(self, obs: FlyObs, rows_b: np.ndarray):
+        """게임 rows_b의 (p, u, k, m). 상태는 바꾸지 않는다 (동률 난수만 쓴다)."""
+        p = pn_input(obs.odor[rows_b], obs.z[rows_b], obs.phero[rows_b])        # (nb, F, 9)
+        u = kc_drive(p, self.circuit)                                            # (nb, F, N_KC)
+        nb = len(rows_b)
+        tie = self.rngs["kc_tiebreak"]
+        row_rngs = [tie[int(b)] for b in rows_b for _ in range(self.F)]          # 행 순서 (b, f)
+        kv = kc_select(u.reshape(nb * self.F, self.n_kc), self.theta, self.k, row_rngs)
+        kv = kv.reshape(nb, self.F, self.n_kc)
+        drive = np.einsum("bfi,bfij->bfj", kv.astype(np.float64), self.dw[rows_b])
+        m = drive @ self._bundle_mat
+        return p, u, kv, m
+
+    # ---- 조종기 인터페이스 ----
     def propose(self, obs: FlyObs, alive: np.ndarray, views: list[GameView] | None = None) -> np.ndarray:
-        raise NotImplementedError
+        if views is not None:
+            raise ValueError("초파리 뇌는 views를 받지 않는다 (TRD 원칙 2)")
+        if self._proposed:
+            raise RuntimeError("propose를 commit 없이 다시 불렀다: 틱당 한 번만 부른다 (지시서 2.3)")
+        self._proposed = True
+        alive = np.asarray(alive, dtype=bool)
+        out = np.full((self.B, self.F), -1, dtype=np.int64)
+        self.last_pi = np.zeros((self.B, self.F, A.N_ACTIONS))
+        rows = np.flatnonzero(alive)
+        if rows.size == 0:
+            return out
+        _, _, kv, m = self.forward(obs, rows)
+        odor = np.asarray(obs.odor[rows], dtype=np.float64)
+        self.x[rows] = (1.0 - self.kappa) * self.x[rows] + m + self.g * odor
+        self.h[rows] = (1.0 - self.kappa) * self.h[rows] + kv
+        self.last_kc[rows], self.last_m[rows] = kv, m
+        act = self.rngs["brain_action"]
+        for b in rows:
+            for f in np.flatnonzero(obs.decide[b]):
+                legal = np.asarray(obs.legal[b, f], dtype=bool)
+                if not legal.any():
+                    raise ValueError(f"게임 {b} 초파리 {f}: decide가 참인데 합법 행동이 없다")
+                s = np.where(legal, self.beta * self.x[b, f], -np.inf)
+                s = np.exp(s - s[legal].max())
+                pi = s / s.sum()
+                a = int(act[int(b)].choice(A.N_ACTIONS, p=pi))
+                self._pi[b, f], self._a[b, f], self._has_prop[b, f] = pi, a, True
+                self.last_pi[b, f] = pi
+                out[b, f] = a
+        return out
+
+    def _learn(self, b: int, f: int) -> None:
+        """확정 1번: Δw = η (R_n - R̄) e M, R̄ 갱신, w ≥ 0."""
+        if self.eta != 0.0:
+            delta = self.eta * (self.Rn[b, f] - self.rbar[b, f])
+            if delta != 0.0:
+                d = self.dw[b, f]
+                d += delta * self.e[b, f] * self.circuit.M
+                np.maximum(d, self._neg_w0, out=d)
+        self.rbar[b, f] = (1.0 - self.alpha_rbar) * self.rbar[b, f] + self.alpha_rbar * self.Rn[b, f]
 
     def commit(self, committed: np.ndarray, active: np.ndarray) -> None:
-        raise NotImplementedError
+        if not self._proposed:
+            raise RuntimeError("commit 전에 이번 틱의 propose가 없다")
+        self._proposed = False
+        committed = np.asarray(committed, dtype=bool)
+        active = np.asarray(active, dtype=bool)
+        self._active = active.copy()
+        bad = committed & ~self._has_prop
+        if bad.any():
+            raise ValueError(f"제안하지 않은 초파리를 확정했다: {np.argwhere(bad).tolist()}")
+        for b, f in np.argwhere(committed):
+            if active[b, f]:
+                self._learn(b, f)                                          # 1
+                g = -self._pi[b, f]                                        # 2: 1[a = a*] - π_a
+                g[self._a[b, f]] += 1.0
+                gj = self.beta * g[self.circuit.mbon_bundle] * self._coef  # (N_MBON,)
+                e = self.e[b, f]
+                e *= self.gamma
+                e += np.outer(self.h[b, f], gj)
+            self.x[b, f] = 0.0                                             # 3
+            self.h[b, f] = 0.0
+            self.Rn[b, f] = 0.0
+        self._has_prop[:] = False
+        self._a[:] = -1
 
     def give_reward(self, R: np.ndarray) -> None:
-        raise NotImplementedError
+        self.Rn += np.asarray(R, dtype=np.float64)
 
     def on_release(self, mask: np.ndarray) -> None:
-        raise NotImplementedError
+        mask = np.asarray(mask, dtype=bool)
+        self.e[mask] = 0.0
+        self.Rn[mask] = 0.0
+        self._active[mask] = True
 
     def on_eaten(self, mask: np.ndarray) -> None:
-        raise NotImplementedError
+        mask = np.asarray(mask, dtype=bool)
+        self.x[mask] = 0.0
+        self.h[mask] = 0.0
 
     def flush_learning(self, mask: np.ndarray) -> None:
-        raise NotImplementedError
+        """확정 1번만 한 번 (마지막 commit의 활성 값으로). 새 결정은 없다."""
+        for b in np.flatnonzero(np.asarray(mask, dtype=bool)):
+            for f in range(self.F):
+                if self._active[b, f]:
+                    self._learn(int(b), f)
 
     def reset_life(self, mask: np.ndarray) -> None:
-        raise NotImplementedError
+        """x, h, e, R_n 초기화. w, R̄ 유지."""
+        mask = np.asarray(mask, dtype=bool)
+        for arr in (self.x, self.h, self.e, self.Rn):
+            arr[mask] = 0.0
+        self._has_prop[mask] = False
+        self._active[mask] = False
 
+    # ---- 저장 · 재개 (판 경계에서만, TRD 13.6) ----
     def state_dict(self) -> dict:
-        raise NotImplementedError
+        return {
+            "format": STATE_FORMAT,
+            "w": self.w,
+            "dw": self.dw.copy(),  # w - w0 그대로 (w에서 다시 빼면 부동소수점 반올림이 생겨 재개가 어긋난다)
+            "rbar": self.rbar.copy(),
+            "rngs": self.rngs.state_dict(),
+            "game_no": self.rngs.game_no.copy(),
+            "circuit_hash": self.circuit.source_hash,
+            "circuit_seed": self.circuit.seed,
+            "config_hash": self.config_hash,
+            "condition": self.condition,
+        }
 
     def load_state_dict(self, state: dict) -> None:
-        raise NotImplementedError
+        """판 경계 재개. x, h, e, R_n과 보관한 제안은 비운다. 회로 파일 해시 · 배정 시드가 다르면 오류."""
+        if state.get("format") != STATE_FORMAT:
+            raise ValueError(f"저장 형식 {state.get('format')} != {STATE_FORMAT}")
+        if state["circuit_hash"] != self.circuit.source_hash or int(state["circuit_seed"]) != self.circuit.seed:
+            raise ValueError("회로 파일 해시 또는 배정 시드가 현재 회로와 다르다: 다른 회로의 가중치는 불러오지 않는다")
+        dw = np.asarray(state["dw"], dtype=np.float64).copy()
+        w = self.circuit.w0 + dw
+        if dw.shape != self.dw.shape:
+            raise ValueError(f"w의 모양 {dw.shape} != {self.dw.shape}")
+        if not np.allclose(w, np.asarray(state["w"]), rtol=0, atol=1e-12):
+            raise ValueError("저장된 w와 dw가 맞지 않는다")
+        if (dw[..., ~self.circuit.M] != 0).any() or (w < 0).any():
+            raise ValueError("w가 연결 마스크 · 비음수 조건을 어긴다")
+        if self.condition == B0 and (dw != 0).any():
+            raise ValueError("B0는 w = w0에서 시작한다: 학습된 w를 불러온 η = 0 정책은 B0가 아니다 (지시서 2.5)")
+        self.dw = dw
+        self.rbar = np.asarray(state["rbar"], dtype=np.float64).copy()
+        self.rngs.load_state_dict(state["rngs"])
+        self.reset_life(np.ones(self.B, dtype=bool))
+        self._proposed = False
