@@ -77,6 +77,9 @@ def test_elroy_pauses_after_death_until_clyde_heads_to_exit():
     eat_dots(game, 32)
     fly_step(game)
     game.tick_timers()
+    assert game.view().elroy_stage == 0
+    for _ in range(38):
+        game.tick_timers()
     assert game.view().elroy_stage == 2
 
 

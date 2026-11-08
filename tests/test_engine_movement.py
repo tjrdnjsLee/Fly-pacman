@@ -14,8 +14,8 @@ from test_engine_real import SMOKE
 def new_game(**engine):
     cfg = load_config(SMOKE).to_dict()
     # 연기 시험 전용 상한 대신 각 단위 시험에서 준 속도를 사용한다.
-    cfg['engine'].pop('pacman_normal_speed_cap', None)
-    cfg['engine'].pop('fly_normal_speed_cap', None)
+    cfg['engine']['pacman_normal_speed_cap'] = 1
+    cfg['engine']['fly_normal_speed_cap'] = 1
     cfg['engine'].update(engine)
     # 이동만 보는 시험은 점 감속을 끈다. 감속 시험은 별도 값을 명시한다.
     cfg['engine']['pacman_dot_speed'] = engine.get('pacman_dot_speed', cfg['engine']['pacman_speed'])
@@ -51,12 +51,12 @@ def test_pacman_can_reverse_and_wrap_tunnel():
     assert game.pac_cell == cell(14, 0)
 
 
-def test_buffered_turn_is_applied_when_open():
+def test_requested_turn_is_applied_when_open():
     game = new_game(pacman_speed=1)
     game.pac_cell = cell(1, 5)
     game.step_pacman(d.SOUTH)  # 여기서는 막혔지만 다음 갈림길에서는 열린다.
     assert game.pac_cell == cell(1, 6) and game.pac_dir == d.EAST
-    game.step_pacman(-1)  # 새 입력 없이 이전 입력 유지
+    game.step_pacman(d.SOUTH)
     assert game.pac_cell == cell(2, 6) and game.pac_dir == d.SOUTH
 
 
@@ -197,8 +197,10 @@ def test_watchdog_ends_game_once_with_censored_event():
     from flypac.core.events import Kind, Winner
     game = new_game(watchdog_ticks=2)
     assert game.tick_timers() == []
+    assert game.tick_timers() == []
+    assert game.view().tick == 2 and not game.view().frozen
     events = game.tick_timers()
     assert len(events) == 1 and events[0].kind is Kind.GAME_OVER
-    assert events[0].winner is Winner.CENSORED and events[0].tick == 1
-    assert game.tick == 2 and game.lives == 3 and game.frozen
-    assert game.tick_timers() == [] and game.tick == 3
+    assert events[0].winner is Winner.CENSORED and events[0].tick == 2
+    assert game.tick == 3 and game.lives == 3 and game.frozen
+    assert game.tick_timers() == [] and game.tick == 4
