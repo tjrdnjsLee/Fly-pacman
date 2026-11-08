@@ -33,6 +33,15 @@ from flypac.core.types import GameView
 from flypac.maps.original import MapSpec
 
 
+def advance_accumulator(accumulator: float, speed: float) -> tuple[float, bool]:
+    """TRD 7.2: 점 감속의 음수 잔액도 유지하고, 한 틱에는 최대 한 칸 이동한다."""
+    accumulator += speed
+    moved = accumulator >= 1.0
+    if moved:
+        accumulator -= 1.0
+    return accumulator, moved
+
+
 class Game:
     """한 판 (TRD 5.2)."""
 
