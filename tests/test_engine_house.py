@@ -110,3 +110,15 @@ def test_last_release_activates_collision_on_exit_tile():
     assert [(e.kind, e.active) for e in events] == [
         (Kind.ALL_RELEASED, False), (Kind.CATCH, True), (Kind.LIFE_LOST, True),
     ]
+
+
+def test_dot_on_first_tick_counts_for_inky_before_pinky_crosses():
+    game = house_game()
+    eat_dots(game, 1)
+    for _ in range(3):
+        fly_step(game)
+    assert game.released[1]
+    eat_dots(game, 28)
+    assert not fly_step(game)[1][2]
+    eat_dots(game, 1)
+    assert fly_step(game)[1][2]

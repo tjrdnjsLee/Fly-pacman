@@ -390,6 +390,12 @@ class Game:
         self.house_personal_count = np.zeros(self.F, dtype=np.int64)
         self.house_global_count = 0
         self.use_global_house_count = self.lives < self.lives_max
+        if not self.use_global_house_count:
+            # 첫 틱에 먹는 점도 즉시 출발하는 핑키 다음의 대기 초파리에게 간다.
+            waiting = self._waiting_fly()
+            while waiting is not None and self.house_personal_limits[waiting] == 0:
+                self.exiting[waiting] = True
+                waiting = self._waiting_fly()
         self.last_house_dot_tick = self.tick - 1
         # DECISIONS 4.1의 7~11행은 후속 범위. 절대 방향 예약 자리만 확보한다.
         self.pending_fly_dir = np.full(self.F, -1, dtype=np.int64)
