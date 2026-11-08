@@ -66,22 +66,32 @@ class Game:
         e = cfg.engine
         self.map = map
         self.lives_max = int(e.lives)
-        self.v_pac = float(e.pacman_speed)
-        self.v_fly = float(e.fly_speed)
+        pac_speed, fly_speed = float(e.pacman_speed), float(e.fly_speed)
+        pac_cap = float(e.get("pacman_normal_speed_cap", pac_speed))
+        fly_cap = float(e.get("fly_normal_speed_cap", fly_speed))
+        self.v_pac = min(pac_speed, pac_cap)
+        self.v_fly = min(fly_speed, fly_cap)
         self.v_dot = float(e.get("pacman_dot_speed", self.v_pac))
         self.v_pac_power = float(_engine_setting(e, "pacman_power_speed"))
         self.v_dot_power = float(_engine_setting(e, "pacman_power_dot_speed"))
         self.v_frightened = float(_engine_setting(e, "fly_frightened_speed"))
+        self.v_tunnel = float(_engine_setting(e, "fly_tunnel_speed"))
+        self.elroy_thresholds = tuple(_engine_setting(e, "elroy_dots_left"))
+        self.elroy_speeds = tuple(_engine_setting(e, "elroy_speeds"))
         self.power_ticks_max = config_ticks(cfg, e.power_s)
+        self.fruit_duration = config_ticks(cfg, _engine_setting(e, "fruit_s"))
+        self.fruit_thresholds = tuple(_engine_setting(e, "fruit_dots_eaten"))
         self.score_dot = int(e.score_dot)
         self.score_energizer = int(e.score_energizer)
         self.score_ghosts = tuple(_engine_setting(e, "score_ghosts"))
+        self.score_fruit = int(_engine_setting(e, "score_fruit"))
         self.watchdog = int(e.watchdog_ticks)
         self.house_personal_limits = _engine_setting(e, "house_personal_dots")
         self.house_global_limits = _engine_setting(e, "house_global_dots")
         self.house_no_dot_ticks = config_ticks(cfg, _engine_setting(e, "house_no_dot_s"))
         if not all(0 <= speed <= 1 for speed in
-                   (self.v_pac, self.v_fly, self.v_pac_power, self.v_frightened)):
+                   (pac_speed, fly_speed, pac_cap, fly_cap, self.v_pac_power, self.v_frightened,
+                    self.v_tunnel, *self.elroy_speeds)):
             raise ValueError("속도는 0 이상 1 이하여야 한다 (TRD 7.2)")
         for speed, dot_speed in ((self.v_pac, self.v_dot), (self.v_pac_power, self.v_dot_power)):
             if not 0 <= dot_speed <= speed or (speed > 0 and dot_speed == 0):
@@ -93,6 +103,8 @@ class Game:
         self._house = np.zeros(map.nbr.shape[0], dtype=bool)
         self._house[map.house_cells] = True
         self._house[map.door_cells] = True
+        self._tunnel = np.zeros_like(self._house)
+        self._tunnel[map.tunnel_cells] = True
         self._new_game()
 
     def step_pacman(self, action: int) -> list[Event]:
@@ -118,16 +130,20 @@ class Game:
             self.score += self.score_dot
             self.pac_acc -= speed / dot_speed - 1
             events.append(self._ev(Kind.DOT))
-            self._count_house_dot()
+            self._count_pellet()
         elif self.energizers[self.pac_cell]:
             self.energizers[self.pac_cell] = False
             self.score += self.score_energizer
             events.append(self._ev(Kind.ENERGIZER))
-            self._count_house_dot()
+            self._count_pellet()
             self.power_ticks = self.power_ticks_max
             self.ghost_streak = 0
             events.append(self._ev(Kind.POWER_START))
             self._set_frightened(True, ZCause.POWER_START, events)
+        if self.fruit_ticks and self.pac_cell == self.map.fruit_cell:
+            self.fruit_ticks = 0
+            self.score += self.score_fruit
+            events.append(self._ev(Kind.FRUIT))
         if not (self.dots.any() or self.energizers.any()):
             events.append(self._ev(Kind.GAME_OVER, cause=Winner.PACMAN))
             self.frozen = True
@@ -144,12 +160,27 @@ class Game:
             events.append(self._ev(Kind.Z_CHANGE, int(k), cause))
 
     def _fly_speed(self, k: int) -> float:
-        return self.v_frightened if self.fly_z[k] else self.v_fly
+        if self._tunnel[self.fly_cell[k]]:
+            return self.v_tunnel
+        if self.fly_z[k]:
+            return self.v_frightened
+        if k == 0 and self.elroy_stage:
+            return max(self.v_fly, self.elroy_speeds[self.elroy_stage - 1])
+        return self.v_fly
+
+    def _update_elroy(self) -> None:
+        if self.use_global_house_count and not (self.exiting[-1] or self.released[-1]):
+            return  # 목숨을 잃으면 클라이드의 재출발까지 가속을 정지한다.
+        remaining = np.count_nonzero(self.dots) + np.count_nonzero(self.energizers)
+        self.elroy_stage = sum(remaining <= threshold for threshold in self.elroy_thresholds)
 
     def _waiting_fly(self) -> int | None:
         return next((k for k in range(self.F) if not self.released[k] and not self.exiting[k]), None)
 
-    def _count_house_dot(self) -> None:
+    def _count_pellet(self) -> None:
+        self.pellets_eaten += 1
+        if self.pellets_eaten in self.fruit_thresholds:
+            self.fruit_ticks = self.fruit_duration
         self.last_house_dot_tick = self.tick
         if self.use_global_house_count:
             self.house_global_count += 1
@@ -281,11 +312,14 @@ class Game:
                 if not self.power_ticks:
                     events.append(self._ev(Kind.POWER_END))
                     self._set_frightened(False, ZCause.POWER_END, events)
+            if self.fruit_ticks:
+                self.fruit_ticks -= 1
             if self.tick - self.last_house_dot_tick >= self.house_no_dot_ticks:
                 waiting = self._waiting_fly()
                 if waiting is not None:
                     self.exiting[waiting] = True
                     self.last_house_dot_tick = self.tick
+            self._update_elroy()
             if self.tick + 1 >= self.watchdog:
                 events.append(self._ev(Kind.GAME_OVER, cause=Winner.CENSORED))
                 self.frozen = True
@@ -307,11 +341,11 @@ class Game:
             fly_in_house=self._house[self.fly_cell].copy(),
             dots=self.dots.copy(),
             energizers=self.energizers.copy(),
-            fruit=False,
+            fruit=self.fruit_ticks > 0,
             tick=self.tick,
             score=self.score,
             learning_active=self.learning_active,
-            elroy_stage=0,
+            elroy_stage=self.elroy_stage,
             frozen=self.frozen,
             pac_acc=float(self.pac_acc),
             fly_acc=self.fly_acc.copy(),
@@ -350,6 +384,8 @@ class Game:
         self.fly_acc = np.zeros(self.F)
         self.fly_z = np.zeros(self.F, dtype=bool)
         self.power_ticks = 0
+        self.fruit_ticks = 0
+        self.elroy_stage = 0
         self.released = ~self._house[self.fly_cell]  # 처음부터 집 밖인 1번만 이동한다.
         self.exiting = np.zeros(self.F, dtype=bool)
         self.house_personal_count = np.zeros(self.F, dtype=np.int64)
@@ -373,6 +409,7 @@ class Game:
         self.energizers = self.map.energizers.copy()
         self.score = 0
         self.ghost_streak = 0
+        self.pellets_eaten = 0
         self.tick = 0
         self.reset_life()
 

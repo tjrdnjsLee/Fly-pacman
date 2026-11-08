@@ -59,7 +59,7 @@ def test_decision_waits_for_speed_and_does_not_change_heading_early():
     ((14, 0), d.WEST, (14, 27)),
 ])
 def test_unique_route_moves_without_commit(start, heading, target):
-    game = new_game(fly_speed=1)
+    game = new_game(fly_speed=1, fly_tunnel_speed=1)  # 여기서는 경로만 검증한다.
     game.fly_cell[0], game.fly_dir[0] = cell(*start), heading
     _, moved, committed, _ = game.step_flies(np.full(4, -1))
     assert moved[0] and not committed.any() and game.fly_cell[0] == cell(*target)

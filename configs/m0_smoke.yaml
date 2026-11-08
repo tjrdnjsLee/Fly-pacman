@@ -1,5 +1,6 @@
 # M0 연기 시험: 게임 2개(B=2), 판 2개, 규칙 기반 팩맨, 무작위 초파리, 체제1.
 # 모든 값은 자리표시다 (TRD 13.1, 17절 미결). 이 파일은 관리자 소유다.
+# 진짜 엔진에서만 평상 속도 상한을 적용한다. 더 낮게 명시한 속도는 유지한다.
 experiment: m0_smoke
 condition: regime1        # regime1 | regime2 | regime3 | b0 | b1  (b0p는 없앴다: DECISIONS 10.4)
 seeds: [0, 1]
@@ -10,7 +11,11 @@ engine: {kind: fake, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
          watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71,
          house_personal_dots: [0, 0, 30, 60], house_global_dots: [7, 17, 32],
          house_no_dot_s: 4, pacman_power_speed: 0.90, pacman_power_dot_speed: 0.79,
-         fly_frightened_speed: 0.50, score_ghosts: [200, 400, 800, 1600]}  # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
+         fly_frightened_speed: 0.50, score_ghosts: [200, 400, 800, 1600],
+         fruit_s: 9.5, fruit_dots_eaten: [70, 170], score_fruit: 100,
+         elroy_dots_left: [20, 10], elroy_speeds: [0.80, 0.85],
+         fly_tunnel_speed: 0.40, pacman_normal_speed_cap: 0.80,
+         fly_normal_speed_cap: 0.75}  # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
 time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
 phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)

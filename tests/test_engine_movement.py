@@ -13,6 +13,9 @@ from test_engine_real import SMOKE
 
 def new_game(**engine):
     cfg = load_config(SMOKE).to_dict()
+    # 연기 시험 전용 상한 대신 각 단위 시험에서 준 속도를 사용한다.
+    cfg['engine'].pop('pacman_normal_speed_cap', None)
+    cfg['engine'].pop('fly_normal_speed_cap', None)
     cfg['engine'].update(engine)
     # 이동만 보는 시험은 점 감속을 끈다. 감속 시험은 별도 값을 명시한다.
     cfg['engine']['pacman_dot_speed'] = engine.get('pacman_dot_speed', cfg['engine']['pacman_speed'])
