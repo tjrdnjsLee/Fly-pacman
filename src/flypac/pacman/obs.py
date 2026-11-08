@@ -20,7 +20,7 @@
 PacmanController.reset을 부르므로 학습 환경도 같은 시점에 지운다).
 
 위험한 유령 판정(`dangerous_flies`)은 이 파일 하나에만 있다: 관측 채널 4 · 5와 학습 보상의 근접 항이 같은 함수를
-쓴다 (DECISIONS 13.1절). 파워 분모와 목숨 분모는 `engine_constants`가 엔진 설정에서 가져온다.
+쓴다 (DECISIONS 14.1절). 파워 분모와 목숨 분모는 `engine_constants`가 엔진 설정에서 가져온다.
 """
 
 from __future__ import annotations
@@ -185,7 +185,7 @@ class PacmanObserver:
         return legal_mask(self.map, views, self.mask_reverse)
 
     def engine_legal(self, views: list[GameView]) -> np.ndarray:
-        """엔진이 허용하는 방향 전체 (반전 포함). ε 무작위 행동이 여기서 고른다 (DECISIONS 13.2절)."""
+        """엔진이 허용하는 방향 전체 (반전 포함). ε 무작위 행동이 여기서 고른다 (DECISIONS 14.2절)."""
         return legal_mask(self.map, views, False)
 
     def current(self) -> dict:

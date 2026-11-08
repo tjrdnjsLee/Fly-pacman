@@ -124,7 +124,7 @@ def near_view(n_danger=2):
 
 
 def test_rewards_fixed_cases():
-    """고정 사례: 이동 / 정지, 사망, 클리어, 먹기. 시간 · 근접 항은 팩맨이 움직인 틱에만 (DECISIONS 13.1절)."""
+    """고정 사례: 이동 / 정지, 사망, 클리어, 먹기. 시간 · 근접 항은 팩맨이 움직인 틱에만 (DECISIONS 14.1절)."""
     fn = RewardFn(TRAIN["rewards"], MAP.cell_rc)
     v, near = far_view(), near_view()
     # 이동 없는 틱: 시간 · 근접 항이 없다. 가까운 위험한 유령이 있어도 0
