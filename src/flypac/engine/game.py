@@ -1,4 +1,4 @@
-"""엔진 인터페이스 (TRD 5.2). 자리 파일: 진짜 엔진은 M1(팩맨 담당)이 채운다.
+"""팩맨 엔진과 게임 묶음 (TRD 5.2).
 
 엔진은 스스로 초기화하지 않는다. reset_life, reset_game은 실행기(core/tick.py)만 부른다.
 
@@ -250,8 +250,7 @@ class Game:
 
         반환: (events, moved (F,) bool, committed (F,) bool, active (F,) bool). 도중 종료 시 나머지는
         실행하지 않음. moved = 이번 틱에 칸을 옮겼다. committed = 이번 틱의 제안을 엔진이 그 초파리의
-        결정으로 받아들였다 (복도 · 집 출구 이동은 거짓, 지연 반전은 저장한 틱에 참). 언제 참인지는
-        DECISIONS 4절의 표를 그대로 따른다.
+        결정으로 받아들였다. 복도 · 집 출구 이동은 거짓이다 (DECISIONS 4.1의 1~6행).
         """
         events: list[Event] = []
         moved = np.zeros(self.F, dtype=bool)
@@ -465,9 +464,16 @@ class VecGame:
 
     def reset_game(self, mask: np.ndarray, rngs) -> None:
         """mask (B,) bool: 새 판을 시작할 게임. rngs: 칸별 엔진 생성기 (GameRngs, rngs[b]가 칸 b의 이번 판 생성기)."""
-        for b, (g, m) in enumerate(zip(self.games, mask)):
-            if m:
-                g.reset_game(rngs[b])
+        mask = np.asarray(mask, dtype=bool)
+        if mask.shape != (self.B,) or len(rngs) != self.B:
+            raise ValueError("mask와 rngs는 게임 묶음의 크기와 같아야 한다")
+        next_rngs = [rngs[b] if mask[b] else getattr(g, "rng", None)
+                     for b, g in enumerate(self.games)]
+        identities = [id(rng) for rng in next_rngs if rng is not None]
+        if len(set(identities)) != len(identities):
+            raise ValueError("게임 칸끼리 엔진 난수 생성기를 공유할 수 없다")
+        for b in np.flatnonzero(mask):
+            self.games[b].reset_game(next_rngs[b])
 
     def retire(self, mask: np.ndarray) -> None:
         """mask (B,) bool: 은퇴시킬 게임 (모든 판을 끝낸 칸)."""
