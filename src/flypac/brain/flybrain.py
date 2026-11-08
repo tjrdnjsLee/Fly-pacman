@@ -11,7 +11,8 @@ decide가 참이면 π_a ∝ exp(β x_a) (합법 행동만), a* ~ π (게임별 
 `propose`는 틱당 한 번 증거(x, h)를 누적하고 결정 시점이면 (π, a*)를 보관한다. 학습 상태(w, e, R̄, R_n)는
 바꾸지 않는다. 같은 틱 중복 호출은 오류 (깃발은 조종기 전체에 하나: propose가 세우고 commit이 내린다).
 
-내부에서는 w 대신 변화분 dw = w - w0를 둔다 (w ≥ 0 ⇔ dw ≥ -w0). w0은 불변 참조 배열 하나를 모든 게임 ·
+학습 상태는 변화분 dw = w - w0 하나뿐이다 (DECISIONS 12.3). 갱신은 dw ← max(dw + Δw, -w0) (w ≥ 0과 같다).
+w가 필요하면(시각화 등) w0 + dw로 만든다. 저장 · 재개도 dw만 쓴다. w0은 불변 참조 배열 하나를 모든 게임 ·
 초파리가 읽기 전용으로 공유한다. B0 = 같은 코드, w = w0에서 시작, η = 0 (지시서 2.5).
 """
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,7 +36,7 @@ REPO = Path(__file__).resolve().parents[3]
 RNG_PURPOSES = ("kc_tiebreak", "brain_action")
 LEARNING_CONDITIONS = ("regime1", "regime2", "regime3")
 B0 = "b0"
-STATE_FORMAT = 1
+STATE_FORMAT = 2  # 2: w 대신 dw만 저장, 설정 변경 허용 기록 (PR #7 검토)
 
 
 def repo_path(path) -> Path:
@@ -201,7 +203,7 @@ class FlyBrain(GhostController):
 
         self.rngs = RngGroup(seeds, RNG_PURPOSES)
         B, F = self.B, self.F
-        self.dw = np.zeros((B, F, self.n_kc, self.n_mbon))   # w - w0
+        self.dw = np.zeros((B, F, self.n_kc, self.n_mbon))   # w - w0: 유일한 학습 상태
         self.e = np.zeros_like(self.dw)
         self.rbar = np.zeros((B, F))
         self.Rn = np.zeros((B, F))
@@ -215,11 +217,12 @@ class FlyBrain(GhostController):
         self.last_pi = np.zeros((B, F, n_act))
         self.last_kc = np.zeros((B, F, self.n_kc), dtype=bool)
         self.last_m = np.zeros((B, F, n_act))
+        self.config_changes: list[dict] = []          # 명시적으로 허용한 설정 변경 재개의 기록 (저장에 따라감)
 
     # ---- 읽기 ----
     @property
     def w(self) -> np.ndarray:
-        """현재 가중치 w = w0 + dw (새 배열)."""
+        """현재 가중치 w = w0 + dw (보기용 새 배열. 상태는 dw뿐이다)."""
         return self.circuit.w0 + self.dw
 
     @property
@@ -273,7 +276,7 @@ class FlyBrain(GhostController):
         return out
 
     def _learn(self, b: int, f: int) -> None:
-        """확정 1번: Δw = η (R_n - R̄) e M, R̄ 갱신, w ≥ 0."""
+        """확정 1번: Δw = η (R_n - R̄) e M, dw ← max(dw + Δw, -w0) (w ≥ 0과 같다), R̄ 갱신."""
         if self.eta != 0.0:
             delta = self.eta * (self.Rn[b, f] - self.rbar[b, f])
             if delta != 0.0:
@@ -338,10 +341,10 @@ class FlyBrain(GhostController):
 
     # ---- 저장 · 재개 (판 경계에서만, TRD 13.6) ----
     def state_dict(self) -> dict:
+        """학습 상태는 dw뿐이다 (w는 저장하지 않는다. w0은 회로 파일에서 다시 만든다)."""
         return {
             "format": STATE_FORMAT,
-            "w": self.w,
-            "dw": self.dw.copy(),  # w - w0 그대로 (w에서 다시 빼면 부동소수점 반올림이 생겨 재개가 어긋난다)
+            "dw": self.dw.copy(),
             "rbar": self.rbar.copy(),
             "rngs": self.rngs.state_dict(),
             "game_no": self.rngs.game_no.copy(),
@@ -349,26 +352,41 @@ class FlyBrain(GhostController):
             "circuit_seed": self.circuit.seed,
             "config_hash": self.config_hash,
             "condition": self.condition,
+            "config_changes": [dict(c) for c in self.config_changes],
         }
 
-    def load_state_dict(self, state: dict) -> None:
-        """판 경계 재개. x, h, e, R_n과 보관한 제안은 비운다. 회로 파일 해시 · 배정 시드가 다르면 오류."""
+    def load_state_dict(self, state: dict, *, allow_config_change: bool = False) -> None:
+        """판 경계 재개. x, h, e, R_n과 보관한 제안은 비운다.
+
+        - 회로 파일 해시 · 배정 시드가 다르면 오류.
+        - 설정 해시가 다르면 오류 (DECISIONS 12.5: 재개 중 설정이 바뀌면 한 실험의 앞뒤가 다른 조건이 되는데
+          드러나지 않는다). allow_config_change=True로 명시할 때만 허용하고, 허용한 사실과 두 해시를
+          config_changes에 남긴다 (이후 state_dict에 따라간다).
+        """
         if state.get("format") != STATE_FORMAT:
             raise ValueError(f"저장 형식 {state.get('format')} != {STATE_FORMAT}")
         if state["circuit_hash"] != self.circuit.source_hash or int(state["circuit_seed"]) != self.circuit.seed:
             raise ValueError("회로 파일 해시 또는 배정 시드가 현재 회로와 다르다: 다른 회로의 가중치는 불러오지 않는다")
+        changes = [dict(c) for c in state.get("config_changes", [])]
+        if state["config_hash"] != self.config_hash:
+            if not allow_config_change:
+                raise ValueError(
+                    f"설정 해시가 다르다 (저장 {state['config_hash']}, 현재 {self.config_hash}): 재개 중 설정이 바뀌면 "
+                    "한 실험의 앞뒤가 다른 조건이 된다. 의도한 변경이면 allow_config_change=True로 명시한다")
+            changes.append({"allowed": True, "saved_config_hash": str(state["config_hash"]),
+                            "current_config_hash": self.config_hash,
+                            "game_no": [int(g) for g in np.asarray(state["game_no"])]})
+            warnings.warn(f"설정 변경을 허용하고 재개한다: {state['config_hash']} → {self.config_hash}", stacklevel=2)
         dw = np.asarray(state["dw"], dtype=np.float64).copy()
-        w = self.circuit.w0 + dw
         if dw.shape != self.dw.shape:
-            raise ValueError(f"w의 모양 {dw.shape} != {self.dw.shape}")
-        if not np.allclose(w, np.asarray(state["w"]), rtol=0, atol=1e-12):
-            raise ValueError("저장된 w와 dw가 맞지 않는다")
-        if (dw[..., ~self.circuit.M] != 0).any() or (w < 0).any():
-            raise ValueError("w가 연결 마스크 · 비음수 조건을 어긴다")
+            raise ValueError(f"dw의 모양 {dw.shape} != {self.dw.shape}")
+        if (dw[..., ~self.circuit.M] != 0).any() or (dw < self._neg_w0).any():
+            raise ValueError("dw가 연결 마스크 · 비음수(dw ≥ -w0) 조건을 어긴다")
         if self.condition == B0 and (dw != 0).any():
             raise ValueError("B0는 w = w0에서 시작한다: 학습된 w를 불러온 η = 0 정책은 B0가 아니다 (지시서 2.5)")
         self.dw = dw
         self.rbar = np.asarray(state["rbar"], dtype=np.float64).copy()
         self.rngs.load_state_dict(state["rngs"])
+        self.config_changes = changes
         self.reset_life(np.ones(self.B, dtype=bool))
         self._proposed = False

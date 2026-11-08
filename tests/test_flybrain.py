@@ -410,6 +410,41 @@ def test_resume_at_game_boundary_matches_uninterrupted_run(circuit):
     assert (resumed.rngs.game_no == 3).all()
 
 
+def test_state_holds_dw_only_not_w(circuit):
+    """학습 상태는 dw 하나다 (PR #7 검토). w는 저장하지 않고 필요하면 w0 + dw로 만든다."""
+    b = brain(circuit, eta=50.0)  # 큰 학습률: 비음수 제한이 걸리게
+    rng = np.random.default_rng(22)
+    for _ in range(50):
+        step(b, random_obs(rng, 2), R=rng.normal(0, 1, (2, F)))
+    st = b.state_dict()
+    assert "w" not in st and np.array_equal(st["dw"], b.dw) and not np.shares_memory(st["dw"], b.dw)
+    assert (b.dw >= -circuit.w0).all() and np.array_equal(b.w, circuit.w0 + b.dw)
+    clipped = (b.dw == -circuit.w0) & circuit.M & (circuit.w0 > 0)
+    assert clipped.any()  # 비음수 제한이 실제로 걸렸다 (dw ← max(dw + Δw, -w0))
+
+
+def test_resume_refuses_changed_config_unless_explicitly_allowed(circuit):
+    """설정 해시가 다르면 오류. allow_config_change=True일 때만 허용하고 두 해시를 기록에 남긴다."""
+    saved = brain(circuit, eta=0.3)
+    st = saved.state_dict()
+    changed = brain(circuit, eta=0.2)
+    assert changed.config_hash != saved.config_hash
+    with pytest.raises(ValueError, match="설정 해시"):
+        changed.load_state_dict(st)
+    with pytest.warns(UserWarning, match="설정 변경"):
+        changed.load_state_dict(st, allow_config_change=True)
+    rec = changed.config_changes[-1]
+    assert rec["allowed"] and rec["saved_config_hash"] == saved.config_hash
+    assert rec["current_config_hash"] == changed.config_hash
+    # 기록은 다음 저장에 따라간다 (같은 설정으로 다시 재개해도 남는다)
+    again = brain(circuit, eta=0.2)
+    again.load_state_dict(changed.state_dict())
+    assert again.config_changes == changed.config_changes
+    same = brain(circuit, eta=0.3)
+    same.load_state_dict(st)  # 같은 설정이면 옵션 없이 된다
+    assert same.config_changes == []
+
+
 def test_resume_refuses_other_circuit(circuit):
     state = brain(circuit).state_dict()
     bad = dict(state, circuit_hash="0" * 64)

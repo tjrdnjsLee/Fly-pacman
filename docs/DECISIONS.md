@@ -286,9 +286,9 @@ $$
 
 - 채널 순서 냄새 좌 · 앞 · 우 · 뒤, $z$, 페로몬 좌 · 앞 · 우 · 뒤. **채널 이름은 `assign.channel_names()`가 `core.directions.EGO_NAMES`에서 만든다** (Codex F10).
 - $\tilde p_c = \alpha_c p_c$, $u = J\tilde p$, $k_i = \mathbb 1[u_i > \theta \wedge u_i \in \text{상위 } k]$, $k = \lceil \rho N_{\text{KC}}\rceil$. $\alpha_c$는 PN 입력 사본에만. 상위 $k$ 경계의 동률은 게임별 난수(용도 `"kc_tiebreak"`)로 끊고, $u$에 잡음을 더하지 않는다. 난수는 경계에 동률이 실제로 걸린 행에서만 뽑는다. 한 게임의 네 초파리는 초파리 번호 순서로 같은 생성기를 쓴다.
-- $m_a = \frac{1}{k|a|}\sum_{j\in a}\sum_i (w_{ij}-w^{(0)}_{ij})k_i$ (10.3절). 구현은 $w$ 대신 **변화분 $dw = w - w^{(0)}$**를 둔다. 그래서 $w = w^{(0)}$이면 $m_a$가 정확히 0이다. $w \ge 0$은 $dw \ge -w^{(0)}$으로 지킨다. $w^{(0)}$은 회로 하나에 읽기 전용 배열 하나 (`setflags(write=False)`)이고 $dw$와 메모리를 공유하지 않는다.
+- $m_a = \frac{1}{k|a|}\sum_{j\in a}\sum_i (w_{ij}-w^{(0)}_{ij})k_i$ (10.3절). **학습 상태는 변화분 $dw = w - w^{(0)}$ 하나뿐이다** (PR #7 검토, 총책임자 결정 2026-11-08). 갱신은 $dw \leftarrow \max(dw + \Delta w,\, -w^{(0)})$이고 이것이 $w \ge 0$과 같다. $w$가 필요하면(시각화 등) $w^{(0)} + dw$로 만든다. 그래서 $w = w^{(0)}$이면 $m_a$가 정확히 0이다. $w^{(0)}$은 회로 하나에 읽기 전용 배열 하나 (`setflags(write=False)`)이고 $dw$와 메모리를 공유하지 않는다.
 - 결정: $\pi_a \propto e^{\beta x_a}$ (합법 행동만), $a_* \sim \pi$ (용도 `"brain_action"`). 확정 · 학습은 TRD 10.4 그대로 (1 · 2는 활성일 때만, 3은 항상).
-- 배열은 float64다 (12.6의 메모리 참고).
+- 배열은 float64다 (12.6의 메모리 참고). float64를 유지한다 (총책임자 결정 2026-11-08).
 - 단계 1 · 2의 회로 값은 **자리표시**다: 배정 시드 0, $\rho = 0.05$, $\theta = 0$ (`configs/brain_v1.yaml`). 단계 3 선정 결과로 바꾸고 커밋 메시지에 "단계 3 선정 결과 반영"을 적는다. $\kappa, g, \beta, \eta, \alpha, \gamma$는 미결 4의 자리표시 (0.2, 1.0, 1.0, 0.01, 0.01, 0.9).
 
 ### 12.4 B0와 `b0p` 제거
@@ -301,7 +301,9 @@ $$
 - 용도 번호를 뒤에 덧붙였다: `kc_tiebreak` 6, `brain_action` 7, `repr_synth` 8 (11절 규칙).
 - 용도가 여럿인 조종기를 위해 `core.rng.RngGroup`(용도 → `GameRngs`)을 더했다. 실행기는 `GameRngs`와 같이 새 판마다 `renew(mask, game_no)`를 부른다 (`isinstance(bundle, (GameRngs, RngGroup))`).
 - **난수는 판마다 다시 만들지만 $w$와 $\bar R$은 판을 넘어 이어진다.** 목숨 · 판 경계의 `reset_life`는 $x, h, e, R_n$만 비운다. 시험으로 고정했다 (`test_runner_carries_w_and_rbar_across_games_and_renews_rngs`).
-- `state_dict()`: `w`, `dw`(정확한 재개용 — $w$에서 $w^{(0)}$을 다시 빼면 부동소수점 반올림으로 어긋난다), `rbar`, 난수 상태(용도별), 칸별 판 번호, **회로 파일 해시**(원본 `mb_raw_v1.npz`의 sha256)와 배정 시드, 설정 해시, 조건. `load_state_dict()`는 회로 해시나 배정 시드가 다르면 `ValueError`로 멈춘다. $w^{(0)}$은 저장하지 않고 회로 파일에서 다시 만든다. 설정 해시는 기록만 하고 대조하지 않는다.
+- `state_dict()`: **`dw`만** (w는 저장하지 않는다), `rbar`, 난수 상태(용도별), 칸별 판 번호, **회로 파일 해시**(원본 `mb_raw_v1.npz`의 sha256)와 배정 시드, 설정 해시, 조건, 설정 변경 허용 기록(`config_changes`). $w^{(0)}$은 저장하지 않고 회로 파일에서 다시 만든다. 이유: 상태를 하나로 두면 $w$와 $dw$가 어긋날 수 없고, $w$에서 $w^{(0)}$을 다시 빼는 부동소수점 반올림 때문에 재개가 끊지 않은 실행과 달라지는 일도 없다 (재개 시험 유지). 저장 형식 번호는 2.
+- `load_state_dict()`는 회로 해시나 배정 시드가 다르면 `ValueError`로 멈춘다.
+- **설정 해시도 대조한다 (총책임자 결정 2026-11-08).** 다르면 `ValueError`로 멈춘다. 이유: 본 실험 재개 중 설정이 바뀌면 한 실험의 앞뒤가 다른 조건이 되는데, 결과 파일에는 드러나지 않는다. 의도한 변경은 **명시적 인자 `load_state_dict(state, allow_config_change=True)`로만** 허용한다. 허용하면 경고를 내고, 허용한 사실과 두 해시(저장 · 현재)와 판 번호를 `config_changes`에 남긴다. 이 기록은 이후 `state_dict()`에 따라가므로 같은 실험의 다음 체크포인트에도 남는다. 재개 실행 명령(아직 없음)을 만들 때는 같은 뜻의 옵션 `--allow-config-change`를 두고 이 기록을 결과 폴더에도 쓴다.
 - **재개는 판 경계에서만** (TRD 13.6). 불러오면 $x, h, e, R_n$과 보관한 제안을 비운다. 임의 틱 재개는 지원하지 않는다.
 
 ### 12.6 속도 실측 (M1 완료 조건, 2026-11-08)
@@ -335,4 +337,6 @@ $$
 - 10.7 진단표: B0′ 행 삭제. "본능 대 버섯체 크기"를 행동 간 차이 $\operatorname{span}_{a \in L}(g\,o_a)$와 $\operatorname{span}_{a \in L}(m_a)$로.
 - 5.5 B0 정의: $w = w^{(0)}$에서 시작, $\eta = 0$. B0′ 행 삭제 (12.4).
 - 19.4 재생 로그 형식 버전 3: `committed`, `moved` (6절).
+- 10.5 메모리 추정: 실제 배열은 **float64**다. $w$(내부 $dw$)와 $e$가 각각 $B \cdot F \cdot N_{\text{KC}} \cdot N_{\text{MBON}} \cdot 8$ 바이트 — $B=10$, $F=4$, $N_{\text{KC}}=1575$, $N_{\text{MBON}}=47$에서 각 22.6 MB, 합 45 MB (12.6). TRD의 float32 추정(각 12.8 MB, $N_{\text{KC}}=2000$, $N_{\text{MBON}}=40$)을 바꾼다.
+- 13.6 재개: 학습 상태는 $dw$뿐, 설정 해시 대조와 명시적 허용 (12.5).
 
