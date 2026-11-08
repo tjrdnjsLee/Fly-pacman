@@ -58,7 +58,9 @@ def test_version_and_unknown_field():
     with pytest.raises(s.SchemaError):
         s.validate(a)
     a = _arrays()
-    a[s.META_KEY] = np.array(s.make_meta("x", 0, 0, "", "", "").replace('"format_version": 2', '"format_version": 1'))
+    meta = s.make_meta("x", 0, 0, "", "", "")
+    assert f'"format_version": {s.FORMAT_VERSION}' in meta
+    a[s.META_KEY] = np.array(meta.replace(f'"format_version": {s.FORMAT_VERSION}', '"format_version": 1'))
     with pytest.raises(s.SchemaError):
         s.validate(a)
 

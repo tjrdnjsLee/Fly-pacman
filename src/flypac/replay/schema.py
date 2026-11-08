@@ -1,6 +1,8 @@
 """재생 로그 형식 (TRD 19.4, 19.13). 판 하나 = npz 파일 하나.
 
 형식 버전 2 = 19.4 기본 필드 + 19.13 뇌 필드(선택 묶음). 형식 변경은 시각화 팀과 합의한다.
+형식 버전 3 = 버전 2 + 기본 필드 `committed`, `moved` (T,4) bool (M1 뇌 ②, DECISIONS 6절). 더하기만 했다.
+쓰기는 항상 최신 버전. 읽기는 SUPPORTED_VERSIONS를 모두 받는다 (버전 2 파일에는 새 필드가 없다).
 
 모양 표기: T 틱 수, N 걸을 수 있는 칸 수, K 켜진 KC 최대 수, M MBON 수, F = 4 초파리 수.
 """
@@ -12,7 +14,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
+SUPPORTED_VERSIONS = (2, 3)
 N_FLIES = 4
 N_SENSE = 8  # 냄새 4방향 + 페로몬 4방향 (TRD 19.4)
 N_ACTIONS = 4
@@ -45,6 +48,7 @@ class Field:
     dtype: str
     group: str  # "base" 필수 | "phero" 체제3만 | "brain" 뇌 필드 묶음(전부 있거나 전부 없음)
     use: str
+    since: int = 2  # 이 필드가 생긴 형식 버전. 그보다 옛 파일에는 없어야 한다
 
 
 FIELDS = (
@@ -68,6 +72,9 @@ FIELDS = (
     Field("sense", ("T", N_FLIES, N_SENSE), "float16", "base", "감각값: 냄새 4 + 페로몬 4 (자기중심 순서)"),
     Field("action", ("T", N_FLIES), "int8", "base", "결정 (자기중심 행동, 결정 아닌 틱은 -1)"),
     Field("pi", ("T", N_FLIES, N_ACTIONS), "float16", "base", "행동 확률 π"),
+    Field("committed", ("T", N_FLIES), "bool", "base", "확정: 엔진이 이번 틱 제안을 결정으로 받음 (DECISIONS 4.1)",
+          since=3),
+    Field("moved", ("T", N_FLIES), "bool", "base", "이번 틱에 실제로 칸을 옮김 (집 출구 통과 포함)", since=3),
     # --- 19.4 체제3만 ---
     Field("phero_field", ("T", "N"), "float16", "phero", "페로몬 장 (체제3만)"),
     # --- 19.13 뇌 필드 (replay.brain 설정으로 켜고 끔). KC 번호는 이 묶음에서 필수 ---
@@ -79,7 +86,12 @@ FIELDS = (
 
 FIELD_BY_NAME = {f.name: f for f in FIELDS}
 BRAIN_FIELDS = tuple(f.name for f in FIELDS if f.group == "brain")
-BASE_FIELDS = tuple(f.name for f in FIELDS if f.group == "base")
+BASE_FIELDS = tuple(f.name for f in FIELDS if f.group == "base")  # 최신 형식의 필수 기본 필드
+
+
+def base_fields(version: int) -> tuple[str, ...]:
+    """형식 버전 version의 필수 기본 필드."""
+    return tuple(f.name for f in FIELDS if f.group == "base" and f.since <= version)
 EVENT_FIELDS = ("ev_tick", "ev_kind", "ev_fly")
 
 
@@ -115,14 +127,15 @@ def validate(arrays: dict) -> dict:
     if META_KEY not in arrays:
         raise SchemaError("메타데이터가 없다")
     meta = parse_meta(arrays[META_KEY])
-    if meta["format_version"] != FORMAT_VERSION:
-        raise SchemaError(f"형식 버전 {meta['format_version']} != {FORMAT_VERSION}")
+    version = meta["format_version"]
+    if version not in SUPPORTED_VERSIONS:
+        raise SchemaError(f"형식 버전 {version}은 읽을 수 없다 (지원 {SUPPORTED_VERSIONS})")
 
-    known = set(FIELD_BY_NAME) | {META_KEY}
+    known = {f.name for f in FIELDS if f.since <= version} | {META_KEY}
     extra = set(arrays) - known
     if extra:
-        raise SchemaError(f"알 수 없는 필드: {sorted(extra)}")
-    for name in BASE_FIELDS:
+        raise SchemaError(f"형식 버전 {version}에 없는 필드: {sorted(extra)}")
+    for name in base_fields(version):
         if name not in arrays:
             raise SchemaError(f"필수 필드가 없다: {name}")
     present_brain = [n for n in BRAIN_FIELDS if n in arrays]
