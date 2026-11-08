@@ -119,3 +119,82 @@ def test_no_pickup_when_accumulator_is_not_ready():
     game.dots[cell(1, 2)] = True
     assert game.step_pacman(d.EAST) == []
     assert game.score == 0 and game.dots[cell(1, 2)]
+
+
+@pytest.mark.parametrize('lives', [1, 2, 3])
+def test_catch_freezes_without_automatic_reset(lives):
+    from flypac.core.events import Kind, Winner
+    game = new_game(pacman_speed=1)
+    game.lives = lives
+    game.learning_active = True
+    game.fly_cell[0] = cell(1, 2)
+    events = game.step_pacman(d.EAST)
+    expected = [Kind.CATCH, Kind.LIFE_LOST]
+    if lives == 1:
+        expected.append(Kind.GAME_OVER)
+        assert events[-1].winner is Winner.FLIES
+    assert [event.kind for event in events] == expected
+    assert all(event.active for event in events)
+    assert game.lives == lives - 1 and game.frozen and game.learning_active
+    assert game.pac_cell == cell(1, 2)  # 포획 위치를 실행기가 기록한 뒤 초기화한다.
+    before = game.fly_cell.copy()
+    ev, moved, committed, _ = game.step_flies(np.zeros(4, dtype=int))
+    assert ev == [] and not moved.any() and not committed.any()
+    assert np.array_equal(game.fly_cell, before)
+    assert game.step_pacman(d.WEST) == []  # 종료 보상을 중복 생성하지 않는다.
+
+
+@pytest.mark.parametrize('energizer', [False, True])
+def test_last_pickup_wins_before_collision(energizer):
+    from flypac.core.events import Kind, Winner
+    game = new_game(pacman_speed=1)
+    game.dots[:] = False
+    target = cell(1, 2)
+    (game.energizers if energizer else game.dots)[target] = True
+    game.fly_cell[0] = target
+    events = game.step_pacman(d.EAST)
+    assert [event.kind for event in events] == [Kind.ENERGIZER if energizer else Kind.DOT, Kind.GAME_OVER]
+    assert events[-1].winner is Winner.PACMAN and game.lives == 3 and game.frozen
+
+
+def test_swap_is_caught_in_pacman_phase():
+    from flypac.core.events import Kind
+    game = new_game(pacman_speed=1)
+    game.fly_cell[0], game.fly_dir[0] = cell(1, 2), d.WEST
+    events = game.step_pacman(d.EAST)
+    assert events[0].kind is Kind.CATCH
+    game.step_flies(np.full(4, d.FORWARD))
+    assert game.fly_cell[0] == cell(1, 2)  # 서로 마주 오는 두 캐릭터가 통과하지 않는다.
+
+
+def test_life_reset_preserves_progress_rng_and_game_tick():
+    game = new_game(pacman_speed=1)
+    game.tick = 9
+    game.score = 123
+    game.fly_cell[0] = cell(1, 2)
+    game.step_pacman(d.EAST)
+    dots = game.dots.copy()
+    rng = game.rng
+    state = rng.bit_generator.state
+    game.reset_life()
+    assert game.rng is rng and game.rng.bit_generator.state == state
+    assert game.tick == 9 and game.score == 123 and game.lives == 2
+    assert np.array_equal(game.dots, dots) and not game.frozen
+
+
+def test_frozen_tick_is_counted_without_advancing_life_timer():
+    game = new_game()
+    game.tick, game.life_tick, game.frozen = 9, 4, True
+    assert game.tick_timers() == []
+    assert game.tick == 10 and game.life_tick == 4
+
+
+def test_watchdog_ends_game_once_with_censored_event():
+    from flypac.core.events import Kind, Winner
+    game = new_game(watchdog_ticks=2)
+    assert game.tick_timers() == []
+    events = game.tick_timers()
+    assert len(events) == 1 and events[0].kind is Kind.GAME_OVER
+    assert events[0].winner is Winner.CENSORED and events[0].tick == 1
+    assert game.tick == 2 and game.lives == 3 and game.frozen
+    assert game.tick_timers() == [] and game.tick == 3

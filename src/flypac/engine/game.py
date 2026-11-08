@@ -28,7 +28,7 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core import directions as d
-from flypac.core.events import Event, Kind
+from flypac.core.events import Event, Kind, Winner
 from flypac.core.types import GameView
 from flypac.maps.original import MapSpec
 
@@ -56,6 +56,7 @@ class Game:
         self.v_dot = float(e.get("pacman_dot_speed", self.v_pac))
         self.score_dot = int(e.score_dot)
         self.score_energizer = int(e.score_energizer)
+        self.watchdog = int(e.watchdog_ticks)
         if not (0 <= self.v_pac <= 1 and 0 <= self.v_fly <= 1):
             raise ValueError("속도는 0 이상 1 이하여야 한다 (TRD 7.2)")
         if not 0 <= self.v_dot <= self.v_pac or (self.v_pac > 0 and self.v_dot == 0):
@@ -92,10 +93,29 @@ class Game:
             self.score += self.score_energizer
             events.append(self._ev(Kind.ENERGIZER))
             # 겁먹음 · z 전환 · 연속 사냥 초기화는 단계 7에서 구현한다.
+        if not (self.dots.any() or self.energizers.any()):
+            events.append(self._ev(Kind.GAME_OVER, cause=Winner.PACMAN))
+            self.frozen = True
+            return events
+        self._collision_with_pacman(events)
         return events
 
     def _ev(self, kind: Kind, fly: int = -1, cause=None) -> Event:
         return Event(kind, self.index, self.tick, fly, self.learning_active, cause)
+
+    def _collision_with_pacman(self, events: list[Event], fly: int | None = None) -> None:
+        """캐릭터마다 이동 직후 검사한다. 맞교환도 팩맨 단계에서 먼저 포획된다."""
+        for k in range(self.F) if fly is None else [fly]:
+            if self._house[self.fly_cell[k]] or self.fly_cell[k] != self.pac_cell:
+                continue
+            # 겁먹은 초파리의 먹힘 분기는 단계 7에서 추가한다.
+            events.append(self._ev(Kind.CATCH, k))
+            self.lives -= 1
+            events.append(self._ev(Kind.LIFE_LOST))
+            if self.lives == 0:
+                events.append(self._ev(Kind.GAME_OVER, cause=Winner.FLIES))
+            self.frozen = True
+            break
 
     def step_flies(self, actions: np.ndarray) -> tuple[list[Event], np.ndarray, np.ndarray, np.ndarray]:
         """동결이 아니면 초파리 1→4번 이동, 매번 충돌. actions (F,) 자기중심 행동, -1은 유일한 경로.
@@ -105,6 +125,9 @@ class Game:
         결정으로 받아들였다 (복도 · 집 출구 이동은 거짓, 지연 반전은 저장한 틱에 참). 언제 참인지는
         DECISIONS 4절의 표를 그대로 따른다.
         """
+        if self.frozen:
+            return ([], np.zeros(self.F, dtype=bool), np.zeros(self.F, dtype=bool),
+                    np.full(self.F, self.learning_active, dtype=bool))
         raise NotImplementedError
 
     def tick_timers(self) -> list[Event]:
@@ -113,7 +136,14 @@ class Game:
         틱 번호의 주인은 실행기다: 사건의 틱 번호는 실행기가 다시 쓰고, view.tick이 실행기 번호와 다르면
         실행기가 멈춘다 (DECISIONS 8절).
         """
-        raise NotImplementedError
+        events: list[Event] = []
+        if not self.frozen:
+            self.life_tick += 1
+            if self.tick + 1 >= self.watchdog:
+                events.append(self._ev(Kind.GAME_OVER, cause=Winner.CENSORED))
+                self.frozen = True
+        self.tick += 1
+        return events
 
     def view(self) -> GameView:
         """현재 상태의 읽기 전용 사본."""
