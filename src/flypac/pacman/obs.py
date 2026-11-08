@@ -18,6 +18,9 @@
 
 프레임 이력: 목숨 또는 판이 끝나면 지우고 첫 프레임으로 4칸을 모두 채운다 (실행기가 목숨 끝에
 PacmanController.reset을 부르므로 학습 환경도 같은 시점에 지운다).
+
+위험한 유령 판정(`dangerous_flies`)은 이 파일 하나에만 있다: 관측 채널 4 · 5와 학습 보상의 근접 항이 같은 함수를
+쓴다 (DECISIONS 13.1절). 파워 분모와 목숨 분모는 `engine_constants`가 엔진 설정에서 가져온다.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core import directions as d
+from flypac.core.timing import config_ticks
 from flypac.core.types import GameView
 from flypac.maps.original import WALL, MapSpec
 
@@ -32,6 +36,29 @@ from flypac.maps.original import WALL, MapSpec
 OBS_VERSION = 1
 NUM_CHANNELS = 8
 NUM_SCALARS = 5
+
+
+def engine_constants(cfg) -> dict:
+    """관측 정규화에 쓰는 엔진 숫자. 엔진 설정에서만 가져온다: 파워 분모 = 겁먹는 시간(틱), 목숨 분모 = 초기 목숨 수.
+
+    체크포인트에 기록하고, 실험 시작 때 실험 설정의 값과 대조한다 (pacman/ppo.py, trainer.py).
+    """
+    try:
+        power = config_ticks(cfg, cfg.engine.power_s)
+        lives = int(cfg.engine.lives)
+    except (AttributeError, KeyError) as e:
+        raise ValueError(f"설정에 {e} 가 없다: engine.power_s(초), engine.lives, time.v_max_tiles_per_s가 필요하다") from None
+    return {"power_ticks_max": max(power, 1), "lives": max(lives, 1)}
+
+
+def dangerous_flies(view: GameView) -> np.ndarray:
+    """(F,) bool: 집 밖이고 z = 0인 초파리 = 위험한 유령. 관측과 보상이 같이 쓰는 유일한 판정."""
+    return ~np.asarray(view.fly_in_house, dtype=bool) & ~np.asarray(view.fly_z, dtype=bool)
+
+
+def edible_flies(view: GameView) -> np.ndarray:
+    """(F,) bool: 집 밖이고 z = 1인 초파리 = 먹을 수 있는 유령."""
+    return ~np.asarray(view.fly_in_house, dtype=bool) & np.asarray(view.fly_z, dtype=bool)
 
 
 class ObsEncoder:
@@ -63,10 +90,8 @@ class ObsEncoder:
             g[1, r[v.pac_cell], c[v.pac_cell]] = 1.0
             g[2, r, c] = v.dots
             g[3, r, c] = v.energizers
-            out = ~np.asarray(v.fly_in_house, dtype=bool)
-            z = np.asarray(v.fly_z, dtype=bool)
             cells = np.asarray(v.fly_cell)
-            danger, edible = cells[out & ~z], cells[out & z]
+            danger, edible = cells[dangerous_flies(v)], cells[edible_flies(v)]
             g[4, r[danger], c[danger]] = 1.0
             g[5, r[edible], c[edible]] = 1.0
             if v.fruit:
@@ -124,3 +149,46 @@ def legal_mask(map: MapSpec, views: list[GameView], mask_reverse: bool) -> np.nd
             m[:] = True  # 갈 곳이 없으면 아무 행동이나 (엔진이 무시한다)
         out[b] = m
     return out
+
+
+class PacmanObserver:
+    """프레임 이력을 가진 관측기. 학습 환경과 PPOPacman이 같은 코드로 관측 · 프레임 이력 · 행동 마스크를 만든다.
+
+    프레임 이력은 `reset(mask)`가 표시한 칸만 다음 `observe`에서 첫 프레임으로 다시 채운다.
+    B를 주지 않으면 첫 `observe`의 views 수로 정한다.
+    """
+
+    def __init__(self, map: MapSpec, frame_stack: int, mask_reverse: bool, constants: dict, B: int | None = None):
+        self.map = map
+        self.k = int(frame_stack)
+        self.mask_reverse = bool(mask_reverse)
+        self.encoder = ObsEncoder(map, constants["power_ticks_max"], constants["lives"])
+        self.frames: FrameStack | None = None
+        if B is not None:
+            self._make_frames(int(B))
+
+    def _make_frames(self, B: int) -> None:
+        self.frames = FrameStack(B, self.k, (NUM_CHANNELS, *self.map.grid.shape))
+
+    def observe(self, views: list[GameView]) -> dict:
+        if self.frames is None or self.frames.buf.shape[0] != len(views):
+            self._make_frames(len(views))
+        grid, scalars = self.encoder.encode(views)
+        return {"grid": self.frames.push(grid), "scalars": scalars}
+
+    def reset(self, mask: np.ndarray) -> None:
+        if self.frames is not None:  # 아직 없으면 첫 observe가 모두 새로 채운다
+            self.frames.reset(mask)
+
+    def legal(self, views: list[GameView]) -> np.ndarray:
+        """학습 · 탐욕 행동용 마스크 (mask_reverse면 반전 금지)."""
+        return legal_mask(self.map, views, self.mask_reverse)
+
+    def engine_legal(self, views: list[GameView]) -> np.ndarray:
+        """엔진이 허용하는 방향 전체 (반전 포함). ε 무작위 행동이 여기서 고른다 (DECISIONS 13.2절)."""
+        return legal_mask(self.map, views, False)
+
+    def current(self) -> dict:
+        """push 없이 지금 프레임 이력의 묶음 격자 (B, k*8, H, W) (체크포인트 복원용)."""
+        buf = self.frames.buf
+        return {"grid": buf.reshape(buf.shape[0], -1, *buf.shape[3:]).copy()}

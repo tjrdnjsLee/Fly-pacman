@@ -23,9 +23,9 @@ import numpy as np
 from flypac.core.config import load_config
 
 
-def bench_env(cfg, B: int, steps: int, ghosts: str) -> float:
+def bench_env(cfg, B: int, steps: int, ghosts: str, condition: str) -> float:
     from flypac.pacman.train_env import PacmanTrainEnv
-    env = PacmanTrainEnv(cfg, B, 0, ghosts=ghosts)
+    env = PacmanTrainEnv(cfg, B, 0, ghosts=ghosts, condition=condition)
     env.reset()
     rng = np.random.default_rng(0)
     t0 = time.perf_counter()
@@ -61,19 +61,21 @@ def main(argv=None) -> int:
     p = cfg.pacman_train
     B, T = int(p.num_envs), int(p.ppo.rollout_steps)
     total_updates = int(p.training.total_updates)
-    ghosts = args.ghosts or str(p.curriculum[-1]["ghosts"])
+    last = p.curriculum[-1]
+    ghosts = args.ghosts or str(last["ghosts"])
+    condition = "b1" if ghosts == "original" else str(last["condition"])  # --ghosts로 바꾼 경우 조건도 맞춘다
 
-    env_sps = bench_env(cfg, B, args.env_steps, ghosts)
+    env_sps = bench_env(cfg, B, args.env_steps, ghosts, condition)
     print(f"환경 단독 ({ghosts} 유령, 게임 {B}개): 초당 {env_sps:,.0f} 스텝", flush=True)
 
     with tempfile.TemporaryDirectory() as tmp:
         tr = Trainer(cfg, run_dir=tmp, device=args.device, quiet=True)
         if ghosts != tr.phases[0][1]:
-            tr.phases = [(0, ghosts)]
-            tr.env.set_ghosts(ghosts)
-        tr.train(total_updates=total_updates, stop_after=1)  # 준비 (첫 갱신)
+            tr.phases = [(0, ghosts, condition)]
+            tr.env.set_ghosts(ghosts, condition)
+        tr.train(stop_at=1)  # 준비 (첫 갱신)
         t0 = time.perf_counter()
-        tr.train(total_updates=total_updates, stop_after=args.updates)
+        tr.train(stop_at=1 + args.updates)
         dt = time.perf_counter() - t0
         info = device_info(tr.device)
     train_sps = args.updates * B * T / dt

@@ -361,3 +361,38 @@ $$
 - 10.5 메모리 추정: 실제 배열은 **float64**다. $w$(내부 $dw$)와 $e$가 각각 $B \cdot F \cdot N_{\text{KC}} \cdot N_{\text{MBON}} \cdot 8$ 바이트 — $B=10$, $F=4$, $N_{\text{KC}}=1575$, $N_{\text{MBON}}=47$에서 각 22.6 MB, 합 45 MB (12.6). TRD의 float32 추정(각 12.8 MB, $N_{\text{KC}}=2000$, $N_{\text{MBON}}=40$)을 바꾼다.
 - 13.6 재개: 학습 상태는 $dw$뿐, 설정 해시 대조와 명시적 허용 (12.5).
 
+
+## 13. PPO 팩맨 학습 (PR #9, 관리자 인수 2026-11-08)
+
+### 13.1 보상의 시점 (결정 9)
+
+- **시간 항(`time_step`)과 근접 항(`ghost_proximity`)은 팩맨이 실제로 움직인 틱에만 준다.** "움직였다" = 팩맨의 칸이 이번 틱에 바뀌었다(틱 시작 `begin`의 `pac_cell` ≠ 틱 끝 `pac_cell`). 속도 누적기(TRD 7.2) 때문에 팩맨은 매 틱 움직이지 않는다. 서 있는 틱에도 벌점을 주면 학습 신호가 속도 설정(0.8 · 0.9)에 따라 달라지고, 원 저장소(한 스텝 = 한 칸 이동)와도 어긋난다. 사건 항(먹기 · 사망 · 클리어)은 움직임과 무관하게 준다.
+- **목숨을 잃은 틱의 근접 항은 원 저장소(`third_party/pacman_ai/engine/game.py` `step_game` · `compute_reward`)대로 계산한다.** 원 저장소는 사망 처리에서 위치를 처음으로 되돌린 뒤(`reset_positions`) 그 상태로 `compute_reward`를 부르고, 목숨이 다 떨어져 판이 끝나면 되돌리지 않으므로 잡힌 순간의 배치로 계산한다. 같은 규칙을 따른다: 목숨이 남으면 초기화 뒤 배치(다음 `begin`의 views), 판이 끝나면 잡힌 순간의 배치(`TickOut.now`). 사망 틱은 팩맨이 움직이지 않았어도(유령이 걸어와 잡은 틱) 근접 항을 계산하고, 시간 항은 이동 여부를 따른다.
+- 이유: 원 저장소와 같은 보상 신호를 유지하면서(사망 근접 항) 엔진의 틱 단위가 원 저장소의 스텝 단위와 다른 것(서 있는 틱)만 바로잡는다.
+- 구현: `pacman/rewards.py` 모듈 docstring, 고정 사례 시험 `tests/test_pacman_obs.py::test_rewards_fixed_cases`(이동 / 정지 / 사망 / 판 종료 / 클리어 / 중단).
+- 먹힘 순번은 엔진 상태에서 얻는다 (13.3절). 클리어 · 중단 틱의 근접 항은 틱 끝 배치(`now`)로 계산한다.
+
+### 13.2 반전 (결정 10)
+
+- **탐욕 행동은 반전 금지 마스크를 쓴다** (`obs.mask_reverse: true`, 원 저장소의 학습용 행동 마스크: 다른 길이 있을 때만 반전을 막는다). 학습 중 표본 추출도 같은 마스크다. 학습과 실험이 같은 정책 모양을 갖는다.
+- **ε 무작위 행동은 엔진의 합법 방향 전체(반전 포함)에서 균등하게 고른다** (TRD 12.2: "그 틱에 가능한 방향 중 균등"). 반전 금지는 엔진 규칙이 아니라 학습용 마스크이므로, 난이도용 무작위 행동까지 막으면 TRD의 "가능한 방향"보다 좁아진다. 팩맨 반전 허용은 TRD 7.3의 규칙이다.
+- 이유: 탐욕 정책은 학습한 대로(반전 금지 마스크 안에서) 두고, ε만 엔진이 허용하는 행동 전체로 흔들어 "약한 팩맨"이 반전도 하게 한다.
+- 구현: `PacmanObserver.legal`(탐욕) / `PacmanObserver.engine_legal`(ε), `PPOPacman.act`. 시험 `tests/test_pacman_trainer.py::test_ppo_pacman_controller`.
+
+### 13.3 그 밖의 계약 (관리자 승인)
+
+- **초 → 틱 변환은 `core/timing.py`의 `seconds_to_ticks` 하나만 쓴다:** `round(초 × time.v_max_tiles_per_s)` (파이썬 `round`). 파워 시간은 설정 `engine.power_s`(초, 참고값 6)이고, 관측의 파워 분모가 이 함수로 틱이 된다(약 57). 진짜 엔진도 같은 함수를 쓴다(`engine/game.py` docstring). Codex 엔진 브랜치(`pacman/taeyoung-engine`)에는 파워 시간 키가 아직 없어 `engine.power_s`로 정했다 — **Codex에 알릴 것.**
+- **`GameView.ghost_streak` 계약:** 파워 시작 때 0, 초파리를 먹을 때마다 1 증가, 파워가 끝나도 지우지 않는다. 그 틱의 k번째 EATEN의 순번 = `ghost_streak − (EATEN 수) + k`, 따라서 매 틱 `ghost_streak − EATEN 수 ≥ 0`. 학습 환경은 위반하면 멈춘다. `Event`에는 필드를 더하지 않는다(4절 유지).
+- **엔진 숫자(파워 분모 · 초기 목숨)는 엔진 설정에서만 가져온다**(`pacman/obs.py::engine_constants`). 체크포인트에 `engine_constants`로 기록하고, 실험 시작 때(`PPOPacman`) 실험 설정의 값과 다르면 멈춘다. `Trainer.load`도 대조한다.
+- **조건 이름은 추론하지 않는다.** 커리큘럼 단계마다 `condition`을 설정에 적고(`random`→`regime1`, `original`→`b1`), 평가 상대도 `training.eval_opponent: {ghosts, condition}`에 적는다. `uses_views`와 `condition == "b1"`이 맞아야 하며 시작할 때 검사한다.
+- **난수:** 학습 환경의 엔진 · 유령은 실행기와 같은 용도 이름("engine", "ghost")의 칸별 `GameRngs`이고, `OriginalGhosts`와 `PPOPacman`도 `GameRngs`를 받아 판마다 `TickCore`가 다시 만든다(11절). `OriginalGhosts` 자리 파일의 생성자 셋째 인자가 `rng`에서 `rngs: GameRngs`로 바뀌었다.
+- **설정은 둘:** `configs/pacman_train_smoke.yaml`(연기 시험용: 가짜 엔진 · 무작위 유령 · 평가도 무작위 유령)과 `configs/pacman_train_v1.yaml`(본 학습용: 진짜 엔진 · 무작위 → 원작 유령, 평가는 원작 유령). 학습은 시작할 때 모든 부품(엔진 숫자, 엔진, 단계별 유령, 평가 상대)을 만들어 보고 모자라면 시작하지 않는다(종료 코드 3). 본 학습용은 진짜 엔진 · B1이 병합되기 전에는 이 검사에서 멈추는 것이 정상이다.
+- **학습 일정과 멈출 지점:** 총 길이(`training.total_updates`)는 체크포인트와 설정 해시에 들어가고(바꾸면 재개할 수 없다), 학습률 · 엔트로피 일정은 언제나 이 값으로 계산한다. 이번 실행을 멈출 지점은 별도 인자(`--stop-at`, `Trainer.train(stop_at=...)`)이며 일정에 영향이 없다. 학습 종료는 평가 승률이 평탄해지는 시점으로 판단한다.
+- **평가에서 CENSORED 판**은 승률 분모 · 평균 점수 · `best.pt` 선택에서 빼고 `eval_log.csv`의 `censored` 열에 따로 센다(`unfinished`는 제한 틱 안에 끝나지 않은 판). 계산할 판이 없으면 최고로 뽑지 않는다.
+- **체크포인트 저장 형식 번호 2:** 불러올 때 번호 · 관측 규격 버전이 다르면 멈추고, 저장한 커밋이 지금 코드와 다르면 경고만 낸다.
+
+### 13.4 TRD v0.6에 반영할 것 (PR #9)
+
+- 5.7: `PPOPacman(checkpoint, device, eps, rngs, run_cfg)` — 칸별 `GameRngs`와 실험 설정(엔진 숫자 대조)을 받는다.
+- 12.2: 보상 시점 (13.1), ε 무작위 행동의 후보 = 엔진 합법 방향 전체 (13.2), 설정 `engine.power_s`, 체크포인트의 `engine_constants`.
+- 6.2 / 5.2: `ghost_streak` 계약 (13.3).

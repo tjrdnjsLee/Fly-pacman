@@ -1,8 +1,13 @@
 """PPO 팩맨 학습기 (TRD 12.2, 지시서 4.2 체크포인트와 재개). pacman-ai `training/trainer.py`를 옮겼다.
 
 체크포인트에 담는 것: 정책 가중치, 옵티마이저, 갱신 번호, 커리큘럼 단계, 모든 난수 상태(넘파이 · torch ·
-환경), 환경 상태(엔진 · 유령 · 프레임 이력), 보상 정규화, RND, 관측 규격 버전, 설정 사본, 코드 커밋 해시.
+환경), 환경 상태(엔진 · 유령 · 프레임 이력), 보상 정규화, RND, 관측 규격 버전, 저장 형식 번호, 엔진 숫자(파워 분모 ·
+초기 목숨), 총 갱신 수, 설정 사본, 코드 커밋 해시.
 재개하면 끊지 않고 돌린 것과 같은 결과가 나온다 (같은 장치 · 같은 시드, tests/test_pacman_trainer.py).
+
+학습 일정(학습률 · 엔트로피)은 설정의 총 갱신 수(`training.total_updates`)로 계산하고, 총 갱신 수는 체크포인트와
+설정 해시에 들어간다. 이번 실행을 어디서 멈출지는 별도 인자(`train(stop_at=...)`, `--stop-at`)라서, 중간에 멈추고
+재개해도 일정이 바뀌지 않는다 (학습 종료는 평가 승률이 평탄해지는 시점으로 판단한다).
 
 Ctrl+C: 이번 갱신을 마치고 저장한 뒤 끝낸다. 한 번 더 누르면 저장 없이 바로 끝낸다.
 """
@@ -24,12 +29,13 @@ import torch
 
 from flypac.pacman.obs import NUM_CHANNELS, NUM_SCALARS, OBS_VERSION
 from flypac.pacman.ppo_agent import PPO, RNDModule, RolloutBuffer, RunningMeanStd, build_network, grid_tensor
+from flypac.pacman.preflight import curriculum_phases, eval_opponent, require_ready
 from flypac.pacman.train_env import PacmanTrainEnv
 
-CKPT_FORMAT = 1
-# 재개 때 달라도 되는 설정 (실행 방식만 바꾸고 학습 궤적을 바꾸지 않는 값)
+CKPT_FORMAT = 2
+# 재개 때 달라도 되는 설정 (실행 방식만 바꾸고 학습 궤적을 바꾸지 않는 값). total_updates는 일정을 정하므로 여기 없다.
 _RUNTIME_KEYS = {"device", "run_dir"}
-_RUNTIME_TRAINING_KEYS = {"total_updates", "log_every", "eval_every", "eval_games", "eval_max_ticks",
+_RUNTIME_TRAINING_KEYS = {"log_every", "eval_every", "eval_games", "eval_max_ticks",
                           "checkpoint_every", "keep_checkpoints"}
 
 
@@ -40,7 +46,7 @@ def resolve_device(choice: str) -> torch.device:
 
 
 def learning_config_hash(cfg) -> str:
-    """학습 궤적을 정하는 설정의 해시. 재개할 때 대조한다 (갱신 횟수 · 기록 주기 · 장치 · 경로는 뺀다)."""
+    """학습 궤적을 정하는 설정의 해시. 재개할 때 대조한다 (기록 주기 · 장치 · 경로는 뺀다. 총 갱신 수는 일정을 정하므로 넣는다)."""
     d = cfg.to_dict()
     p = d.get("pacman_train", {})
     for k in _RUNTIME_KEYS:
@@ -64,6 +70,17 @@ def git_commit() -> str:
         return "unknown"
 
 
+def check_checkpoint_header(s: dict, path, warn) -> None:
+    """저장 형식 번호 · 관측 규격 버전이 다르면 멈추고, 저장한 커밋이 지금 코드와 다르면 경고한다 (warn(메시지))."""
+    if s.get("format") != CKPT_FORMAT:
+        raise ValueError(f"저장 형식 번호가 다르다: 체크포인트 {s.get('format')}, 코드 {CKPT_FORMAT} ({path})")
+    if s.get("obs_version") != OBS_VERSION:
+        raise ValueError(f"관측 규격 버전이 다르다: 체크포인트 {s.get('obs_version')}, 코드 {OBS_VERSION}")
+    saved, now = s.get("commit"), git_commit()
+    if saved != now:
+        warn(f"경고: 체크포인트를 저장한 커밋({saved})이 지금 코드({now})와 다르다")
+
+
 def _fmt_eta(sec: float) -> str:
     sec = int(max(sec, 0))
     return f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
@@ -75,6 +92,7 @@ class Trainer:
         p = cfg.pacman_train
         self.p = p
         self.quiet = quiet
+        require_ready(cfg)  # 시작하기 전에 모든 부품을 만들어 본다. 모자라면 여기서 멈춘다 (난수를 쓰지 않는다)
         self.run_dir = Path(run_dir if run_dir is not None else p.run_dir)
         self.ckpt_dir = self.run_dir / "checkpoints"
         self.device = resolve_device(device or str(p.device))
@@ -82,13 +100,13 @@ class Trainer:
         torch.manual_seed(self.seed)
         self.rng = np.random.default_rng(np.random.SeedSequence([self.seed, 1]))  # 섞기 · RND 표본
 
-        self.phases = [(int(ph["from_update"]), str(ph["ghosts"])) for ph in p.curriculum]
-        if not self.phases or self.phases[0][0] != 0:
-            raise ValueError("pacman_train.curriculum의 첫 단계는 from_update: 0 이어야 한다")
+        self.phases = curriculum_phases(p)  # [(from_update, 유령, 조건 이름)]
+        self.eval_ghosts, self.eval_condition = eval_opponent(p)
+        self.total = int(p.training.total_updates)  # 학습 일정의 총 길이. 멈출 지점(stop_at)과 다르다
         self.phase = 0
         self.N = int(p.num_envs)
         self.T = int(p.ppo.rollout_steps)
-        self.env = PacmanTrainEnv(cfg, self.N, self.seed, ghosts=self.phases[0][1])
+        self.env = PacmanTrainEnv(cfg, self.N, self.seed, ghosts=self.phases[0][1], condition=self.phases[0][2])
         self.network = build_network(p.network, self.env.grid_shape, NUM_SCALARS)
         self.ppo = PPO(self.network, p.ppo, self.device)
         self.rollout = RolloutBuffer(self.N, self.T, self.env.grid_shape, NUM_SCALARS)
@@ -122,15 +140,15 @@ class Trainer:
         return coef
 
     def _phase_for(self, update: int) -> int:
-        return max(i for i, (u, _) in enumerate(self.phases) if update >= u)
+        return max(i for i, (u, _, _) in enumerate(self.phases) if update >= u)
 
     def _advance_curriculum(self, update: int) -> None:
         target = self._phase_for(update)
         if target != self.phase:
             self.phase = target
-            self.obs = self.env.set_ghosts(self.phases[target][1])
+            self.obs = self.env.set_ghosts(self.phases[target][1], self.phases[target][2])
             self.entropy_boost_until = update + int(self.p.entropy_boost_updates)
-            self._say(f"[갱신 {update}] 커리큘럼 단계 {target} (유령 {self.phases[target][1]}), "
+            self._say(f"[갱신 {update}] 커리큘럼 단계 {target} (유령 {self.phases[target][1]}, 조건 {self.phases[target][2]}), "
                       f"엔트로피 올림 {self.entropy_boost_until}까지")
 
     # ---- 출력 ----
@@ -151,10 +169,10 @@ class Trainer:
             w.writerow(row)
 
     # ---- 한 번의 갱신 ----
-    def _one_update(self, update: int, total: int) -> dict:
+    def _one_update(self, update: int) -> dict:
         p = self.p
-        self.ppo.anneal_lr(update, total)
-        self.ppo.entropy_coef = self._entropy_coef(update, total)
+        self.ppo.anneal_lr(update, self.total)
+        self.ppo.entropy_coef = self._entropy_coef(update, self.total)
         self._advance_curriculum(update)
         self.rollout.reset()
         obs = self.obs
@@ -193,22 +211,27 @@ class Trainer:
         return self.rnd.update(grid_tensor(flat[idx], self.device))
 
     # ---- 학습 ----
-    def train(self, total_updates: int | None = None, stop_after: int | None = None) -> None:
-        """total_updates까지 학습한다. stop_after: 시험용, 이 갱신 수만큼만 하고 저장 없이 멈춘다."""
+    def train(self, stop_at: int | None = None) -> None:
+        """학습 일정(총 `training.total_updates` 갱신) 안에서 갱신 번호 stop_at에 이를 때까지 하고 저장한 뒤 멈춘다.
+
+        stop_at이 없으면 총 길이까지 한다. stop_at은 이번 실행을 멈출 지점일 뿐 일정을 바꾸지 않는다:
+        학습률 · 엔트로피 일정은 언제나 총 길이로 계산한다.
+        """
         tr = self.p.training
-        total = int(total_updates if total_updates is not None else tr.total_updates)
+        total = self.total
+        end = total if stop_at is None else int(stop_at)
+        if not 0 <= end <= total:
+            raise ValueError(f"stop_at {end}은 0 이상 총 갱신 수 {total} 이하여야 한다")
         if self.obs is None:
             self.obs = self.env.reset()
         old = self._install_sigint()
-        done_here = 0
         try:
-            while self.update < total:
+            while self.update < end:
                 u = self.update
                 t0 = time.time()
-                m = self._one_update(u, total)
+                m = self._one_update(u)
                 dt = time.time() - t0
                 self.update = u + 1
-                done_here += 1
                 self._sec_per_update = dt if self._sec_per_update is None else 0.9 * self._sec_per_update + 0.1 * dt
                 self.recent = (self.recent + m["finished"])[-100:]
                 if u % int(tr.log_every) == 0:
@@ -216,13 +239,11 @@ class Trainer:
                 is_best = False
                 if int(tr.eval_every) > 0 and u > 0 and u % int(tr.eval_every) == 0:
                     is_best = self._evaluate(u)
-                if self.update % int(tr.checkpoint_every) == 0 or self.update == total or is_best:
+                if self.update % int(tr.checkpoint_every) == 0 or self.update == end or is_best:
                     self.save(is_best=is_best)
                 if self._stop:
                     self.save()
                     self._say(f"[갱신 {u}] Ctrl+C: 저장하고 끝냅니다. 재개: --resume {self.ckpt_dir / 'latest.pt'}")
-                    return
-                if stop_after is not None and done_here >= stop_after:
                     return
         finally:
             self._restore_sigint(old)
@@ -244,9 +265,13 @@ class Trainer:
 
     # ---- 평가 (원작 점수 · 승률, TRD 12.2) ----
     @torch.no_grad()
-    def evaluate(self, n_games: int, ghosts: str, seed: int, max_ticks: int) -> dict:
-        """탐욕 행동으로 칸마다 한 판씩. 학습 환경과 별개라 학습 궤적에 영향이 없다."""
-        env = PacmanTrainEnv(self.cfg, n_games, seed, ghosts=ghosts)
+    def evaluate(self, n_games: int, ghosts: str, condition: str, seed: int, max_ticks: int) -> dict:
+        """탐욕 행동으로 칸마다 한 판씩. 학습 환경과 별개라 학습 궤적에 영향이 없다.
+
+        CENSORED(감시 장치 중단) 판은 승률 분모와 평균 점수에서 빼고 `censored`로 따로 센다 (best.pt 선택에도
+        들어가지 않는다). `games`는 CENSORED를 뺀 끝난 판 수, `unfinished`는 max_ticks 안에 끝나지 않은 판 수.
+        """
+        env = PacmanTrainEnv(self.cfg, n_games, seed, ghosts=ghosts, condition=condition)
         obs = env.reset()
         results: dict[int, dict] = {}
         self.network.eval()
@@ -260,27 +285,34 @@ class Trainer:
             if len(results) == n_games:
                 break
         self.network.train()
-        games = list(results.values())
-        return {"games": len(games), "unfinished": n_games - len(games),
-                "win_rate": float(np.mean([g["winner"] == "PACMAN" for g in games])) if games else 0.0,
-                "mean_score": float(np.mean([g["score"] for g in games])) if games else 0.0}
+        done = list(results.values())
+        valid = [g for g in done if g["winner"] != "CENSORED"]
+        return {"games": len(valid), "censored": len(done) - len(valid), "unfinished": n_games - len(done),
+                "win_rate": float(np.mean([g["winner"] == "PACMAN" for g in valid])) if valid else float("nan"),
+                "mean_score": float(np.mean([g["score"] for g in valid])) if valid else float("nan")}
 
     def _evaluate(self, u: int) -> bool:
         tr = self.p.training
-        res = self.evaluate(int(tr.eval_games), self.phases[-1][1], self.seed + 1_000_000, int(tr.eval_max_ticks))
-        key = (res["win_rate"], res["mean_score"])
-        is_best = self.best is None or key > self.best
-        if is_best:
-            self.best = key
-        self._say(f"[갱신 {u}] 평가 ({self.phases[-1][1]} 유령, {res['games']}판): 승률 {res['win_rate']:.0%} "
-                  f"평균 점수 {res['mean_score']:.0f}" + (" (최고)" if is_best else ""))
+        res = self.evaluate(int(tr.eval_games), self.eval_ghosts, self.eval_condition, self.seed + 1_000_000,
+                            int(tr.eval_max_ticks))
+        if res["games"] == 0:  # 계산할 판이 없다 (모두 중단 · 미완): 최고로 뽑지 않는다
+            is_best = False
+        else:
+            key = (res["win_rate"], res["mean_score"])
+            is_best = self.best is None or key > self.best
+            if is_best:
+                self.best = key
+        self._say(f"[갱신 {u}] 평가 ({self.eval_ghosts} 유령, {res['games']}판, 중단 {res['censored']}, "
+                  f"미완 {res['unfinished']}): 승률 {res['win_rate']:.0%} 평균 점수 {res['mean_score']:.0f}"
+                  + (" (최고)" if is_best else ""))
         path = self.run_dir / "eval_log.csv"
         new = not path.exists()
         with open(path, "a", encoding="utf-8-sig" if new else "utf-8", newline="") as f:
             w = csv.writer(f)
             if new:
-                w.writerow(["update", "ghosts", "games", "unfinished", "win_rate", "mean_score"])
-            w.writerow([u, self.phases[-1][1], res["games"], res["unfinished"], res["win_rate"], res["mean_score"]])
+                w.writerow(["update", "ghosts", "games", "censored", "unfinished", "win_rate", "mean_score"])
+            w.writerow([u, self.eval_ghosts, res["games"], res["censored"], res["unfinished"], res["win_rate"],
+                        res["mean_score"]])
         return is_best
 
     # ---- Ctrl+C ----
@@ -305,6 +337,8 @@ class Trainer:
         s = {
             "format": CKPT_FORMAT,
             "obs_version": OBS_VERSION,
+            "engine_constants": self.env.constants,  # 파워 분모 · 초기 목숨 (실험 시작 때 대조한다)
+            "total_updates": self.total,
             "update": self.update,
             "phase": self.phase,
             "entropy_boost_until": self.entropy_boost_until,
@@ -350,10 +384,14 @@ class Trainer:
         if path.is_dir():
             path = path / "checkpoints" / "latest.pt" if (path / "checkpoints").is_dir() else path / "latest.pt"
         s = torch.load(path, map_location="cpu", weights_only=False)
-        if s.get("obs_version") != OBS_VERSION:
-            raise ValueError(f"관측 규격 버전이 다르다: 체크포인트 {s.get('obs_version')}, 코드 {OBS_VERSION}")
+        check_checkpoint_header(s, path, warn=self._say)
+        if int(s["total_updates"]) != self.total:
+            raise ValueError(f"총 갱신 수가 체크포인트와 다르다: 체크포인트 {s['total_updates']}, 설정 {self.total}. "
+                             "학습 일정(학습률 · 엔트로피)이 바뀌므로 허용하지 않는다. 이번 실행을 중간에서 멈추려면 --stop-at을 쓴다")
+        if s["engine_constants"] != self.env.constants:
+            raise ValueError(f"엔진 숫자가 체크포인트와 다르다: 체크포인트 {s['engine_constants']}, 설정 {self.env.constants}")
         if s["config_hash"] != learning_config_hash(self.cfg):
-            raise ValueError("학습 설정이 체크포인트와 다르다 (갱신 횟수 · 기록 주기 · 장치 · 경로 외의 값). "
+            raise ValueError("학습 설정이 체크포인트와 다르다 (기록 주기 · 장치 · 경로 외의 값). "
                              f"체크포인트의 설정 사본: {path}의 'config'")
         self.network.load_state_dict(s["model"])
         self.ppo.optimizer.load_state_dict(s["optimizer"])

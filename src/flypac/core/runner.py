@@ -91,9 +91,20 @@ def build_runner(cfg, recorder=None) -> Runner:
     odor = Field(amap, float(cfg.odor.D), float(cfg.odor.lam))
     condition = cfg.condition
     phero = Field(amap, float(cfg.phero.D), float(cfg.phero.lam)) if condition == "regime3" else None
-    if cfg.pacman.kind != "rule_based":
-        raise NotImplementedError(f"pacman.kind={cfg.pacman.kind}")
-    pacman = RuleBasedPacman(amap, cfg, game_rngs(seeds, "pacman"))
+    pacman_kind = cfg.pacman.kind
+    if pacman_kind == "rule_based":
+        pacman = RuleBasedPacman(amap, cfg, game_rngs(seeds, "pacman"))
+    elif pacman_kind == "ppo":
+        # 학습한 체크포인트로 행동한다 (torch 필요: uv sync --extra pacman). 값은 모두 설정에 적는다.
+        from flypac.pacman.ppo import PPOPacman
+        pc = cfg.pacman
+        missing = [k for k in ("checkpoint", "device", "eps") if k not in pc]
+        if missing:
+            raise ValueError(f"pacman.kind: ppo에는 pacman.{', pacman.'.join(missing)} 설정이 필요하다")
+        pacman = PPOPacman(str(pc.checkpoint), str(pc.device), float(pc.eps), game_rngs(seeds, "pacman"),
+                           run_cfg=cfg)
+    else:
+        raise NotImplementedError(f"pacman.kind={pacman_kind}")
     if cfg.ghosts.kind == "random":
         ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
     elif cfg.ghosts.kind == "flybrain":
