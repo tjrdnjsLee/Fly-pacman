@@ -152,7 +152,8 @@ class Recorder:
                      brain: dict | None) -> None:
         """매 틱 현재 판의 재생 정보를 메모리에 쌓음 (TRD 19.4, 19.5).
 
-        brain: 조종기가 낸 {"action": (B,F), "pi": (B,F,4)}와, replay.brain이 켜진 경우
+        brain: 조종기가 낸 {"action": (B,F), "pi": (B,F,4)}, 실행기 7번의 {"committed", "moved"} (B,F) bool
+        (없으면 거짓), 그리고 replay.brain이 켜진 경우
         {"kc_active", "pn_input", "mbon_out", "dan"} (모두 앞 축이 B).
         """
         b = game
@@ -175,6 +176,9 @@ class Recorder:
         brain = brain or {}
         action = np.asarray(brain.get("action", np.full((len(views), F), -1)))[b]
         pi = np.asarray(brain.get("pi", np.zeros((len(views), F, 4))))[b]
+        no = np.zeros((len(views), F), dtype=bool)
+        committed = np.asarray(brain.get("committed", no), dtype=bool)[b]
+        moved = np.asarray(brain.get("moved", no), dtype=bool)[b]
         frame = dict(
             pac_cell=v.pac_cell, pac_dir=v.pac_dir, pac_acc=v.pac_acc,
             fly_cell=v.fly_cell, fly_dir=v.fly_dir,
@@ -182,6 +186,7 @@ class Recorder:
             fly_z=v.fly_z, fly_in_house=v.fly_in_house, lives=v.lives, power_ticks=v.power_ticks,
             score=v.score, fruit=int(v.fruit), odor_field=odor[b],
             sense=np.concatenate([obs.odor[b], obs.phero[b]], axis=1), action=action, pi=pi,
+            committed=committed, moved=moved,
         )
         if self.replay_with_phero:
             frame["phero_field"] = phero[b]

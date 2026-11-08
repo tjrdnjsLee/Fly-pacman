@@ -65,9 +65,14 @@ def test_null_regime_needs_no_reward_settings():
     assert isinstance(make_regime(Config(data)), NullRegime)
 
 
-@pytest.mark.parametrize("condition", ["b0", "b0p", "b1"])
+@pytest.mark.parametrize("condition", ["b0", "b1"])
 def test_baselines_use_null_regime(condition):
     assert isinstance(make_regime(make_cfg(condition=condition)), NullRegime)
+
+
+def test_b0p_is_an_error():
+    with pytest.raises(ValueError, match="b0p"):
+        make_regime(make_cfg(condition="b0p"))
 
 
 @pytest.mark.parametrize("condition,cls", [("regime1", Regime1), ("regime2", Regime2), ("regime3", Regime3)])

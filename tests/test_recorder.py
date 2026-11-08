@@ -124,3 +124,23 @@ def test_make_run_dir_name(tmp_path):
     assert re.fullmatch(r"\d{8}_\d{6}_test", p.name) and p.parent == tmp_path
     p.mkdir()
     assert make_run_dir(cfg, tmp_path) != p
+
+
+@pytest.mark.parametrize("ghosts", [{"kind": "random"}, {"kind": "flybrain", "config": "configs/brain_v1.yaml"}])
+def test_replay_records_committed_and_moved(tmp_path, ghosts):
+    """재생 기록 형식 3: 실행기 7번의 committed · moved (T,4)를 남긴다 (M1 뇌 ② 3.2)."""
+    cfg, rec, out = run(tmp_path, ghosts=ghosts)
+    meta, arr = read_replay(sorted((tmp_path / "run" / "replay").glob("*.npz"))[0])
+    assert meta["format_version"] == 3
+    T = len(arr["pac_cell"])
+    assert arr["committed"].shape == arr["moved"].shape == (T, 4)
+    assert (arr["action"][arr["committed"]] >= 0).all()
+    assert arr["committed"].any() and (arr["moved"] & ~arr["committed"]).any()
+    # 위치가 바뀐 프레임 쌍은 moved로 설명된다 (프레임은 이동 전 상태, 다음 프레임이 이동 뒤)
+    # 목숨이 바뀌는 둘레의 프레임 쌍은 초기화된 위치라 뺀다. 목숨 수로 판정한다: 팩맨 단계 포획이면 그 틱
+    # 프레임에 이미 줄어 있고, 초파리 단계 포획이면 다음 프레임에서 줄어 있다 (ev_tick은 쓰지 않는다)
+    changed = arr["fly_cell"][1:] != arr["fly_cell"][:-1]
+    lives = arr["lives"].astype(int)
+    step = np.diff(lives) != 0
+    near_end = step | np.r_[False, step[:-1]]
+    assert not (changed & ~near_end[:, None] & ~arr["moved"][:-1]).any()

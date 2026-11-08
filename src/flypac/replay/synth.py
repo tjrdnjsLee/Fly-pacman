@@ -93,6 +93,8 @@ def make_synthetic_arrays(
         action = np.full(F, -1, dtype=np.int64)
         pi = np.zeros((F, 4))
         new_fly, new_dir = fly.copy(), fly_dir.copy()
+        committed = np.zeros(F, bool)
+        moved = ~in_house  # 가짜: 집 밖 초파리는 매 틱 한 칸 (속도 1)
         for j in range(F):
             if in_house[j]:
                 continue
@@ -104,6 +106,7 @@ def make_synthetic_arrays(
                 legal[0, j, int(d.abs_to_ego(h, q))] = True
             if len(opts) >= 2:
                 decide[0, j] = True
+                committed[j] = True  # 결정 지점에서 행동 ≥ 0으로 이동 (DECISIONS 4.1의 1행)
                 egos = np.flatnonzero(legal[0, j])
                 action[j] = int(rng.choice(egos))
                 pi[j, egos] = 1.0 / len(egos)
@@ -119,6 +122,7 @@ def make_synthetic_arrays(
             fly_acc=rng.random(F), fly_z=np.zeros(F, bool), fly_in_house=in_house, lives=3,
             power_ticks=0, score=score, fruit=0, odor_field=field.c[0].copy(), sense=np.concatenate(
                 [obs.odor[0], obs.phero[0]], axis=1), action=action, pi=pi,
+            committed=committed, moved=moved,
         )
         if phero:
             frame["phero_field"] = ph_field.c[0].copy()

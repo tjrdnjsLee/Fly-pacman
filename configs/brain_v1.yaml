@@ -1,0 +1,20 @@
+# 초파리 뇌 설정 (M1 뇌 작업 지시서 ② 2절). 이 파일은 관리자 소유다.
+# 실행 설정에서 ghosts: {kind: flybrain, config: configs/brain_v1.yaml}로 부른다.
+
+circuit:
+  raw: data/circuit/raw/mb_raw_v1.npz        # 원본 회로 (회로 해시는 이 파일의 sha256)
+  assign: configs/circuit_assign_v1.yaml     # 분기 · 페로몬 사구체 · MBON 묶음 탐색 설정
+  seed: 0          # 자리표시: 배정 시드. 단계 3(표현력 시험) 선정 결과로 바꾼다
+
+kc:
+  rho: 0.05        # 자리표시: 상위 k 비율, k = ceil(rho * N_KC). 단계 3 선정 결과로 바꾼다
+  theta: 0.0       # 자리표시: KC 문턱 θ = c · ū_ref (지금 c = 0). 단계 3 선정 결과로 바꾼다
+
+# TODO(미결 4): 아래 값은 모두 자리표시, M2 진단으로 정함 (지시서 2.8)
+learn:
+  kappa: 0.2       # 증거 누설 κ
+  g: 1.0           # 본능 이득 g (외측뿔 모델 항). 채널 이득 α_c와 다른 기호
+  beta: 1.0        # softmax 역온도 β
+  eta: 0.01        # 학습률 η (조건 b0은 0으로 강제)
+  alpha_rbar: 0.01 # 기준 보상 R̄ 갱신률 α
+  gamma: 0.9       # 흔적 감쇠 γ

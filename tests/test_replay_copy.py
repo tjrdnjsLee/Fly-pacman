@@ -19,7 +19,7 @@ def _frame(odor, action):
     return dict(pac_cell=0, pac_dir=0, pac_acc=0.0, fly_cell=np.zeros(F, int), fly_dir=np.zeros(F, int),
                 fly_acc=np.zeros(F), fly_z=np.zeros(F, bool), fly_in_house=np.zeros(F, bool), lives=3,
                 power_ticks=0, score=0, fruit=0, odor_field=odor, sense=np.zeros((F, 4, 2)),
-                action=action, pi=np.zeros((F, 4)))
+                action=action, pi=np.zeros((F, 4)), committed=np.zeros(F, bool), moved=np.zeros(F, bool))
 
 
 def test_buffer_keeps_values_when_source_changes_in_place():

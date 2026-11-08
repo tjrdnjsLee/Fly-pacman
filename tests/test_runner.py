@@ -177,7 +177,7 @@ def test_b1_with_a_controller_that_ignores_views_is_an_error_at_start():
         build_runner(make_cfg(condition="b1")).run()  # 무작위 초파리는 views를 쓰지 않는다
 
 
-@pytest.mark.parametrize("condition", ["regime1", "regime2", "regime3", "b0", "b0p"])
+@pytest.mark.parametrize("condition", ["regime1", "regime2", "regime3", "b0"])
 def test_views_withheld_under_every_non_b1_condition(condition):
     r, rec = runner_with(condition=condition)
     r.tick()
@@ -329,8 +329,13 @@ def test_replay_frame_gets_fields_of_step_5():
     assert not np.shares_memory(frame_odor, r.odor.c) and not np.shares_memory(frame_phero, r.phero.c)
 
 
-@pytest.mark.parametrize("condition", ["b0", "b0p"])
-def test_baseline_conditions_run_with_zero_reward(condition):
-    r = build_runner(make_cfg(condition=condition, seeds=[0, 1], n_games=1))
+def test_baseline_conditions_run_with_zero_reward():
+    r = build_runner(make_cfg(condition="b0", seeds=[0, 1], n_games=1))
     out = r.run()
     assert len(out["games"]) == 2 and not r.ghosts.reward_total.any()
+
+
+def test_b0p_condition_is_an_error():
+    """b0p는 없앴다 (DECISIONS 10.4): 실수로 6조건이 되지 않게 실행기를 만들 때 오류."""
+    with pytest.raises(ValueError, match="b0p"):
+        build_runner(make_cfg(condition="b0p", seeds=[0], n_games=1))
