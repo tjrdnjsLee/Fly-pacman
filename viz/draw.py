@@ -12,6 +12,16 @@ PANEL_X = 934
 CONTENT_X = PANEL_X + 36
 
 
+def rgb_frame(surface: pygame.Surface) -> np.ndarray:
+    """Copy a pygame surface into contiguous RGB rows for the encoder."""
+    return np.ascontiguousarray(pygame.surfarray.array3d(surface).transpose(1, 0, 2))
+
+
+def korean_font(size: int) -> pygame.font.Font | None:
+    path = pygame.font.match_font(("notosanscjkkr", "nanumgothic", "malgungothic", "applegothic"))
+    return pygame.font.Font(path, size) if path else None
+
+
 def state_color(z: bool) -> tuple[int, int, int]:
     return p.FLY_FRIGHTENED if z else p.FLY_NORMAL
 
@@ -56,12 +66,14 @@ class Renderer:
         elif self.board.right - x < TILE // 2:
             yield (x - self.board.width, y)
 
-    def render(self, tick: float) -> np.ndarray:
-        """Return one contiguous uint8 RGB frame, in (height, width, channel) order."""
+    def surface_at(self, tick: float) -> pygame.Surface:
         index = self.replay.tick_index(tick)
         surface = self.base.copy()
         self._draw(surface, tick, index, self.actors_at(tick))
         self.text(surface, f"RECORDED REPLAY  /  {self.replay.meta['condition']}  /  "
                   f"seed {self.replay.meta['seed']}  /  game {self.replay.meta['game_no']}  /  tick {index}",
                   (ORIGIN[0], self.board.bottom + 24), 24, p.MUTED)
-        return np.ascontiguousarray(pygame.surfarray.array3d(surface).transpose(1, 0, 2))
+        return surface
+
+    def render(self, tick: float) -> np.ndarray:
+        return rgb_frame(self.surface_at(tick))

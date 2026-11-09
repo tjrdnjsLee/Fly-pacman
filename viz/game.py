@@ -14,7 +14,7 @@ import pygame
 from flypac.maps.original import DOOR, HOUSE, WALL
 
 from . import palette as p
-from .draw import CONTENT_X, Renderer, state_color
+from .draw import CONTENT_X, Renderer, korean_font, state_color
 from .replay import ORIGIN, STEP_XY, TILE, Replay
 
 
@@ -63,14 +63,15 @@ def _fruit(surface: pygame.Surface, center: tuple) -> None:
 class GameRenderer(Renderer):
     """Offscreen game view driven by a recorded replay."""
 
-    def __init__(self, replay: Replay):
+    def __init__(self, replay: Replay, *, selected_fly: int | None = None):
         super().__init__(replay, "FLY PAC-MAN   /   01", "Game view")
+        self.selected_fly = selected_fly  # zero-based, like the replay arrays
         self._maze()
         x = CONTENT_X
         self.text(self.base, "Same data, presented with game graphics.", (x, 184), 34)
-        korean_font = pygame.font.match_font(("notosanscjkkr", "nanumgothic", "malgungothic", "applegothic"))
-        if korean_font:
-            subtitle = pygame.font.Font(korean_font, 22).render("같은 데이터를 게임 그래픽으로 입힌 것", True, p.MUTED)
+        font = korean_font(22)
+        if font:
+            subtitle = font.render("같은 데이터를 게임 그래픽으로 입힌 것", True, p.MUTED)
             self.base.blit(subtitle, (x, 225))
         self.rule(self.base, 270)
         for label, offset in (("SCORE", 0), ("LIVES", 260), ("POWER LEFT", 485)):
@@ -108,6 +109,9 @@ class GameRenderer(Renderer):
         for fly, center in enumerate(positions[1:]):
             for wrapped in self.wrapped_centers(center):
                 _fly(surface, wrapped, replay.headings[index, fly + 1], a["fly_z"][index, fly])
+        if self.selected_fly is not None:
+            for wrapped in self.wrapped_centers(positions[self.selected_fly + 1]):
+                pygame.draw.circle(surface, p.SELECTED_FLY, wrapped, TILE // 2 - 1, 2)
         for wrapped in self.wrapped_centers(positions[0]):
             _pacman(surface, wrapped, replay.headings[index, 0], tick)
 

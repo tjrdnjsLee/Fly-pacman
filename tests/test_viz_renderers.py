@@ -23,17 +23,19 @@ with pytest.MonkeyPatch.context() as patch:
     from viz.video import frame_ticks
 
 
-@pytest.mark.parametrize("version", (2, 3))
+@pytest.mark.parametrize("version", (2, 3, 4))
 def test_synthetic_replay_aligns_both_offscreen_renderers(tmp_path, version):
-    if version == 3:
+    if version == s.FORMAT_VERSION:
         path = write_synthetic(tmp_path, T=25, phero=True)
     else:
         arrays = make_synthetic_arrays(T=25)
         meta = s.parse_meta(arrays[s.META_KEY])
-        meta["format_version"] = 2
+        meta["format_version"] = version
         arrays[s.META_KEY] = np.array(json.dumps(meta))
-        del arrays["committed"], arrays["moved"]
-        path = tmp_path / "v2.npz"
+        for field in s.FIELDS:
+            if field.since > version:
+                arrays.pop(field.name, None)
+        path = tmp_path / f"v{version}.npz"
         np.savez_compressed(path, **arrays)
 
     replay = Replay(path)
