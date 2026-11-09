@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from flypac.core.directions import BACK
 from flypac.core.events import Event, Kind
 from flypac.core.types import FlyObs, GameView
 from flypac.regimes import make_regime
@@ -144,8 +145,6 @@ class Recorder:
                 gs["eaten"] += 1
                 gs["eaten_by"][e.fly] += 1
                 ls["eaten_by"][e.fly] += 1
-            elif e.kind is Kind.Z_CHANGE and str(e.cause) in ("POWER_START", "POWER_END"):
-                gs["rev_chances"][e.fly] += 1
         self.pending[b] = list(events)
 
     def replay_frame(self, game: int, views: list[GameView], obs: FlyObs, odor: np.ndarray, phero: np.ndarray,
@@ -163,6 +162,7 @@ class Recorder:
         self.decisions_total[b] += int(decided.sum())
         gs = self.game_stats[b]
         gs["dec_since"] += decided.astype(np.int64)
+        gs["rev_chances"] += decided & obs.legal[b, :, BACK]
         # 이번 틱의 보상 사건 (결정은 위에서 먼저 센다)
         for e in self.pending[b]:
             r = self.regime.rewards([e])

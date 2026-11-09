@@ -9,6 +9,7 @@ from flypac.core import directions as d
 from flypac.core.runner import build_runner
 from flypac.recording.recorder import (FLIES_COLS, GAMES_COLS, LIVES_COLS, Recorder, make_run_dir)
 from flypac.replay.reader import read_replay
+from flypac.replay.schema import KIND_CODES
 
 
 def read_csv(path):
@@ -113,6 +114,44 @@ def test_last_life_game_row_records_pre_reset_state(tmp_path):
     assert [f["합계 R"] for f in flies[:4]] == ["1", "-0.25", "-0.25", "-0.25"]
     assert [f["포획"] for f in flies[:4]] == ["1", "0", "0", "0"]
     assert flies[0]["보상 사건 수"] == "1" and flies[0]["결정에서 보상까지 지연(결정 수)"] == "0"
+
+
+def test_reversal_chances_count_open_masks_instead_of_z_changes(tmp_path):
+    cfg = make_cfg(n_games=1, replay={"keep_games": [1]}, engine={
+        "kind": "real", "watchdog_ticks": 4, "power_s": 0.21,
+        "pacman_speed": 1, "pacman_normal_speed_cap": 1, "pacman_dot_speed": 1,
+        "pacman_power_speed": 1, "pacman_power_dot_speed": 1,
+        "fly_speed": 1, "fly_normal_speed_cap": 1, "fly_frightened_speed": 1,
+        "house_personal_dots": [0, 100, 100, 100],
+    })
+    root = tmp_path / "run"
+    recorder = Recorder(root, cfg)
+    runner = build_runner(cfg, recorder)
+    runner.pacman = Scripted(d.EAST)
+    runner._reset_all()
+    game = runner.game.games[0]
+    place(game, pac=cell(1, 1), pac_dir=d.EAST, flies={0: cell(23, 7)}, fly_dirs={0: d.EAST})
+    for pellet in (cell(1, 2), cell(1, 4)):
+        game.dots[pellet], game.energizers[pellet] = False, True
+
+    try:
+        # 시작(0)에 기회가 열린다. 종료(1)와 재시작(2)은 상쇄되어 2에는 보통 결정만 한다.
+        for _ in range(4):
+            runner.tick()
+            assert recorder.game_stats[0]["rev_chances"].tolist() == [1, 0, 0, 0]
+        runner.tick()  # 종료(3)가 연 기회를 센 뒤 판을 끝내고 CSV에 쓴다.
+        assert runner.finished[0]
+    finally:
+        recorder.close()
+
+    _, arrays = read_replay(recorder.replay_files[0])
+    changes = arrays["ev_kind"] == KIND_CODES["Z_CHANGE"]
+    assert arrays["fly_in_house"][:, 1:].all()
+    assert np.flatnonzero(arrays["action"][:, 0] >= 0).tolist() == [0, 2, 4]
+    assert arrays["ev_tick"][changes].tolist() == [0] * 4 + [1] * 4 + [2] * 4 + [3] * 4
+    assert arrays["ev_fly"][changes].tolist() == [0, 1, 2, 3] * 4
+    flies = read_csv(root / "flies.csv")
+    assert [int(row["상태 전환 시 반전 기회"]) for row in flies] == [2, 0, 0, 0]
 
 
 def test_replay_size_cap_discards(tmp_path):
