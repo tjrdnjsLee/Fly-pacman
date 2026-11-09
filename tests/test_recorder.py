@@ -66,15 +66,17 @@ def test_replay_files_only_for_kept_games_and_valid(tmp_path):
     assert len(arr["ev_kind"]) > 0
 
 
-def test_regime3_logs_phero_and_brain_requires_provider(tmp_path):
+def test_regime3_logs_phero_and_brain_fields_only_from_brain_provider(tmp_path):
     cfg = make_cfg(condition="regime3", n_games=1, replay={"keep_games": [1]})
     Recorder(tmp_path / "a", cfg)
     build_runner(cfg, Recorder(tmp_path / "b", cfg)).run()
     _, arr = read_replay(next((tmp_path / "b" / "replay").glob("*.npz")))
     assert "phero_field" in arr
+    # replay.brain이 켜져도 뇌가 아닌 조종기는 뇌 필드를 주지 않는다: 오류 없이 뇌 필드 묶음이 빠진다 (형식 버전 4)
     cfg = make_cfg(n_games=1, replay={"keep_games": [1], "brain": True})
-    with pytest.raises(ValueError, match="뇌 필드"):
-        build_runner(cfg, Recorder(tmp_path / "c", cfg)).run()
+    build_runner(cfg, Recorder(tmp_path / "c", cfg)).run()
+    _, arr = read_replay(next((tmp_path / "c" / "replay").glob("*.npz")))
+    assert "kc_active" not in arr and not arr["brain_on"].any()
 
 
 def test_life_row_for_pre_departure_catch_and_recorded_before_reset(tmp_path):
@@ -128,10 +130,10 @@ def test_make_run_dir_name(tmp_path):
 
 @pytest.mark.parametrize("ghosts", [{"kind": "random"}, {"kind": "flybrain", "config": "configs/brain_v1.yaml"}])
 def test_replay_records_committed_and_moved(tmp_path, ghosts):
-    """재생 기록 형식 3: 실행기 7번의 committed · moved (T,4)를 남긴다 (M1 뇌 ② 3.2)."""
+    """재생 기록 형식 3 이후: 실행기 7번의 committed · moved (T,4)를 남긴다 (M1 뇌 ② 3.2)."""
     cfg, rec, out = run(tmp_path, ghosts=ghosts)
     meta, arr = read_replay(sorted((tmp_path / "run" / "replay").glob("*.npz"))[0])
-    assert meta["format_version"] == 3
+    assert meta["format_version"] == 4
     T = len(arr["pac_cell"])
     assert arr["committed"].shape == arr["moved"].shape == (T, 4)
     assert (arr["action"][arr["committed"]] >= 0).all()

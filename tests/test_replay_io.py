@@ -88,42 +88,68 @@ def test_buffer_checks_fields_and_event_codes():
         buf.arrays("{}")  # 프레임 없음
 
 
-# ---- 형식 버전 3 (committed, moved 추가) · 버전 2 읽기 (M1 뇌 ②, DECISIONS 6절) ----
+# ---- 옛 버전 읽기 · 버전 3, 4의 필드 규칙 (M1 뇌 ②, DECISIONS 6절, 16절) ----
 
-def _as_version2(a: dict) -> dict:
-    """버전 3 배열에서 버전 3 필드를 빼고 메타데이터를 버전 2로 바꾼다 (옛 파일 흉내)."""
-    old = {k: v for k, v in a.items() if k not in ("committed", "moved")}
-    meta = s.parse_meta(a[s.META_KEY])
-    meta["format_version"] = 2
+_V3_FIELDS = ("committed", "moved")
+_V4_FIELDS = ("brain_on",)
+
+
+def _as_version(a: dict, version: int) -> dict:
+    """최신 배열에서 그 버전에 없는 필드를 빼고 메타데이터를 그 버전으로 바꾼다 (옛 파일 흉내)."""
     import json
+    drop = _V4_FIELDS + (_V3_FIELDS if version < 3 else ())
+    old = {k: v for k, v in a.items() if k not in drop}
+    meta = s.parse_meta(a[s.META_KEY])
+    meta["format_version"] = version
     old[s.META_KEY] = np.array(json.dumps(meta, ensure_ascii=False))
     return old
 
 
-def test_version3_has_committed_and_moved():
+def test_current_version_has_committed_moved_and_brain_on():
     a = make_synthetic_arrays(T=40, seed=1)
-    assert s.FORMAT_VERSION == 3 and s.validate(a)["format_version"] == 3
-    assert a["committed"].shape == a["moved"].shape == (40, 4) and a["committed"].dtype == bool
+    assert s.FORMAT_VERSION == 4 and s.validate(a)["format_version"] == 4
+    assert s.SUPPORTED_VERSIONS == (2, 3, 4)
+    assert a["committed"].shape == a["moved"].shape == a["brain_on"].shape == (40, 4)
+    assert a["committed"].dtype == a["brain_on"].dtype == bool
     assert (a["action"][a["committed"]] >= 0).all()  # 확정이면 행동 ≥ 0
     assert a["committed"].any() and (a["moved"] & ~a["committed"]).any()
+    assert not a["brain_on"].any()  # 뇌가 없는 가짜 로그
 
 
+@pytest.mark.parametrize("version", [2, 3])
 @pytest.mark.parametrize("brain", [False, True])
-def test_reader_accepts_version2_file(tmp_path, brain):
-    old = _as_version2(make_synthetic_arrays(T=30, seed=2, brain=brain))
+def test_reader_accepts_old_version_files(tmp_path, version, brain):
+    old = _as_version(make_synthetic_arrays(T=30, seed=2, brain=brain), version)
     path = tmp_path / "old.npz"
     np.savez_compressed(path, **old)  # 쓰기 함수는 최신 버전만 쓰므로 직접 저장
     meta, got = read_replay(path)
-    assert meta["format_version"] == 2 and "committed" not in got and "moved" not in got
+    assert meta["format_version"] == version and "brain_on" not in got
+    assert ("committed" in got) == (version >= 3) and ("moved" in got) == (version >= 3)
     assert set(got) == set(old) - {s.META_KEY}
+
+
+def test_version3_file_with_brain_fields_reads_back_unchanged(tmp_path):
+    """버전 3 파일(뇌 필드 포함)을 읽는다: 값이 그대로이고 버전 4 필드는 없다."""
+    new = make_synthetic_arrays(T=30, seed=4, brain=True, k=6, n_mbon=5)
+    v3 = _as_version(new, 3)
+    path = tmp_path / "v3.npz"
+    np.savez_compressed(path, **v3)
+    meta, got = read_replay(path)
+    assert meta["format_version"] == 3 and "brain_on" not in got
+    for name in ("kc_active", "pn_input", "mbon_out", "dan", "committed", "moved"):
+        assert np.array_equal(got[name], new[name]), name
 
 
 def test_version_field_rules():
     a = make_synthetic_arrays(T=20, seed=3)
-    missing = {k: v for k, v in a.items() if k != "moved"}
-    with pytest.raises(s.SchemaError, match="moved"):
-        s.validate(missing)  # 버전 3에는 필수
-    v2_with_new = _as_version2(a)
+    for name in ("moved", "brain_on"):
+        with pytest.raises(s.SchemaError, match=name):
+            s.validate({k: v for k, v in a.items() if k != name})  # 버전 4에는 필수
+    v2_with_new = _as_version(a, 2)
     v2_with_new["committed"] = a["committed"]
     with pytest.raises(s.SchemaError, match="committed"):
         s.validate(v2_with_new)  # 버전 2 파일에는 없어야 한다
+    v3_with_new = _as_version(a, 3)
+    v3_with_new["brain_on"] = a["brain_on"]
+    with pytest.raises(s.SchemaError, match="brain_on"):
+        s.validate(v3_with_new)  # 버전 3 파일에는 brain_on이 없어야 한다

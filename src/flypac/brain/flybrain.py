@@ -217,6 +217,8 @@ class FlyBrain(GhostController):
         self.last_pi = np.zeros((B, F, n_act))
         self.last_kc = np.zeros((B, F, self.n_kc), dtype=bool)
         self.last_m = np.zeros((B, F, n_act))
+        self._snap = None                              # 이번 틱 propose의 재생 기록용 사본 (replay_info)
+        self._dan = np.zeros((B, F))                   # 이번 틱 확정 시점의 R_n - R̄ (확정 아닌 곳은 0)
         self.config_changes: list[dict] = []          # 명시적으로 허용한 설정 변경 재개의 기록 (저장에 따라감)
 
     # ---- 읽기 ----
@@ -240,6 +242,7 @@ class FlyBrain(GhostController):
         kv = kv.reshape(nb, self.F, self.n_kc)
         drive = np.einsum("bfi,bfij->bfj", kv.astype(np.float64), self.dw[rows_b])
         m = drive @ self._bundle_mat
+        self._fwd_drive = drive  # replay_info용: Σ_i dw_ij k_i
         return p, u, kv, m
 
     # ---- 조종기 인터페이스 ----
@@ -252,10 +255,12 @@ class FlyBrain(GhostController):
         alive = np.asarray(alive, dtype=bool)
         out = np.full((self.B, self.F), -1, dtype=np.int64)
         self.last_pi = np.zeros((self.B, self.F, A.N_ACTIONS))
+        self._snap = None
         rows = np.flatnonzero(alive)
         if rows.size == 0:
             return out
-        _, _, kv, m = self.forward(obs, rows)
+        p, _, kv, m = self.forward(obs, rows)
+        self._snap = (rows, p, kv, self._fwd_drive)
         odor = np.asarray(obs.odor[rows], dtype=np.float64)
         self.x[rows] = (1.0 - self.kappa) * self.x[rows] + m + self.g * odor
         self.h[rows] = (1.0 - self.kappa) * self.h[rows] + kv
@@ -292,11 +297,13 @@ class FlyBrain(GhostController):
         committed = np.asarray(committed, dtype=bool)
         active = np.asarray(active, dtype=bool)
         self._active = active.copy()
+        self._dan = np.zeros((self.B, self.F))
         bad = committed & ~self._has_prop
         if bad.any():
             raise ValueError(f"제안하지 않은 초파리를 확정했다: {np.argwhere(bad).tolist()}")
         for b, f in np.argwhere(committed):
             if active[b, f]:
+                self._dan[b, f] = self.Rn[b, f] - self.rbar[b, f]          # DAN 신호: 학습 직전의 R_n - R̄
                 self._learn(b, f)                                          # 1
                 g = -self._pi[b, f]                                        # 2: 1[a = a*] - π_a
                 g[self._a[b, f]] += 1.0
@@ -309,6 +316,31 @@ class FlyBrain(GhostController):
             self.Rn[b, f] = 0.0
         self._has_prop[:] = False
         self._a[:] = -1
+
+    def replay_info(self) -> dict:
+        """재생 로그의 뇌 필드 (TRD 19.13). 실행기가 이번 틱의 propose · commit 뒤에 부른다. 앞 축은 B.
+
+        kc_active (B,F,k) int16: 켜진 KC 번호, 모자라는 자리는 -1.
+        pn_input (B,F,9): 채널 9묶음의 입력 p (α_c를 곱하기 전).
+        mbon_out (B,F,N_MBON): 개별 MBON의 원래 활동 Σ_i w_ij k_i, w = w0 + dw (기준선 빼기 전. 제안 시점의 w).
+        dan (B,F): 확정 시점의 R_n - R̄ (학습 직전 값). 학습이 일어난 확정이 아니면 0.
+        brain_on (B,F) bool: 이 틱에 뇌 계산을 한 초파리 (동결된 게임은 거짓).
+        """
+        B, F = self.B, self.F
+        kc = np.full((B, F, self.k), -1, dtype=np.int16)
+        pn = np.zeros((B, F, 9))
+        mbon = np.zeros((B, F, self.n_mbon))
+        on = np.zeros((B, F), dtype=bool)
+        if self._snap is not None:
+            rows, p, kv, drive = self._snap
+            on[rows] = True
+            pn[rows] = p
+            mbon[rows] = drive + kv.astype(np.float64) @ self.circuit.w0
+            for i, b in enumerate(rows):
+                for f in range(F):
+                    idx = np.flatnonzero(kv[i, f])
+                    kc[b, f, :idx.size] = idx
+        return {"kc_active": kc, "pn_input": pn, "mbon_out": mbon, "dan": self._dan.copy(), "brain_on": on}
 
     def give_reward(self, R: np.ndarray) -> None:
         self.Rn += np.asarray(R, dtype=np.float64)
