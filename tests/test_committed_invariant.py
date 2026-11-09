@@ -63,6 +63,8 @@ def test_committed_implies_decide_and_action_every_tick(kind, fly_speed, ghosts)
 
     def spy_propose(obs, alive, views=None):
         act = propose(obs, alive, views)
+        # 이동 전의 (판 번호, 목숨 수): 같은 틱에 목숨을 잃어도 이 틱의 결정은 이전 목숨의 것이다
+        seen["key"] = [(int(r.game_no[b]), int(v.lives)) for b, v in enumerate(r.game.views())]
         seen["tick"] = (obs.decide.copy(), obs.z.copy(), np.asarray(alive).copy(), np.asarray(act).copy())
         return act
 
@@ -73,9 +75,8 @@ def test_committed_implies_decide_and_action_every_tick(kind, fly_speed, ghosts)
         decide, z, alive, act = seen["tick"]
         assert np.array_equal(np.asarray(actions), act), "실행기가 제안과 다른 행동을 넘겼다"
         moved, committed = np.asarray(moved, bool), np.asarray(committed, bool)
-        views = r.game.views()
         for b in range(r.B):
-            key = (int(r.game_no[b]), int(views[b].lives))
+            key = seen["key"][b]
             z_before = prev_z.get(b) if life_key.get(b) == key else None
             # 이동 단계 도중 포획으로 끝났으면, 잡은 초파리보다 뒤 번호는 차례가 오지 않았다
             catchers = [e.fly for e in events[b] if e.kind is Kind.CATCH]
