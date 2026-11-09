@@ -315,3 +315,16 @@ def test_summarize_counts_and_probabilities(circuit):
     s = runner.summarize(rec, "C")
     assert (s["n"] == 4).all() and ((0 <= s["rate"]) & (s["rate"] <= 1)).all()
     assert ((0 < rec["p_correct"]) & (rec["p_correct"] < 1)).all()
+
+
+def test_run_trials_records_decision_entropy(circuit):
+    """결정 때의 π의 엔트로피(자연로그)를 시행마다 기록한다: 0 ≤ H ≤ ln 4, 학습 전 (η = 0)에는 최대에 가깝다."""
+    env = TMaze(CFG, "B", [0, 1])
+    brain = runner.build_brain(BRAIN, [0, 1], circuit=circuit, eta=0.0)
+    runner.start(brain)
+    rec = runner.run_trials(env, brain, 8)
+    h = rec["entropy"]
+    assert h.shape == rec["ok"].shape
+    assert ((h >= 0) & (h <= np.log(4) + 1e-9)).all()
+    # 학습 전 H/ln2는 0.96 가량 (DECISIONS 18.7, 측정): 여유를 두고 0.85 이상
+    assert h.mean() / np.log(2) > 0.85

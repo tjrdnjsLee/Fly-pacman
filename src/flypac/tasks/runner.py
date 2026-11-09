@@ -33,28 +33,35 @@ def start(brain: FlyBrain) -> None:
 def run_trials(env: TMaze, brain: FlyBrain, n_trials: int) -> dict:
     """n_trials 시행을 돌린다. 반환: 시행별 기록 (n_trials, B) 배열들.
 
-    cue, z, correct_action, choice, ok, p_correct (결정 때의 π[정답], 표본 오차 없는 정답 확률).
+    cue, z, correct_action, choice, ok, p_correct (결정 때의 π[정답], 표본 오차 없는 정답 확률),
+    entropy (결정 때의 π의 엔트로피, 자연로그).
     """
     B = env.B
     alive = np.ones(B, dtype=bool)
     active = np.ones((B, F), dtype=bool)
     start_n = env.trials_done
     p_main = np.zeros(B)
+    h_main = np.zeros(B)
     pc: list[np.ndarray] = []
+    hs: list[np.ndarray] = []
     while env.trials_done - start_n < n_trials:
         obs = env.obs()
         act = brain.propose(obs, alive)
         if obs.decide.any() and env.dec == 0:
-            p_main = brain.last_pi[np.arange(B), env.learner, env.correct].copy()
+            pi = brain.last_pi[:, env.learner]
+            p_main = pi[np.arange(B), env.correct].copy()
+            h_main = -(pi * np.log(np.where(pi > 0, pi, 1.0))).sum(1)
         before = env.trials_done
         brain.commit(obs.decide & (act >= 0), active)
         R = env.step(act)
         brain.give_reward(R)
         if env.trials_done > before:
             pc.append(p_main.copy())
+            hs.append(h_main.copy())
     log = env.trial_log[start_n:start_n + n_trials]
     out = {k: np.stack([t[k] for t in log]) for k in log[0]}
     out["p_correct"] = np.stack(pc)
+    out["entropy"] = np.stack(hs)
     return out
 
 
