@@ -154,7 +154,8 @@ class Recorder:
 
         brain: 조종기가 낸 {"action": (B,F), "pi": (B,F,4)}, 실행기 7번의 {"committed", "moved"} (B,F) bool
         (없으면 거짓), 그리고 replay.brain이 켜진 경우
-        {"kc_active", "pn_input", "mbon_out", "dan"} (모두 앞 축이 B).
+        {"kc_active", "pn_input", "mbon_out", "dan", "brain_on"} (모두 앞 축이 B).
+        뇌가 아닌 조종기는 뇌 필드를 주지 않는다: 그 로그에는 뇌 필드 묶음이 없고 brain_on은 모두 거짓이다.
         """
         b = game
         v = views[b]
@@ -179,6 +180,7 @@ class Recorder:
         no = np.zeros((len(views), F), dtype=bool)
         committed = np.asarray(brain.get("committed", no), dtype=bool)[b]
         moved = np.asarray(brain.get("moved", no), dtype=bool)[b]
+        brain_on = np.asarray(brain.get("brain_on", no), dtype=bool)[b]
         frame = dict(
             pac_cell=v.pac_cell, pac_dir=v.pac_dir, pac_acc=v.pac_acc,
             fly_cell=v.fly_cell, fly_dir=v.fly_dir,
@@ -186,17 +188,23 @@ class Recorder:
             fly_z=v.fly_z, fly_in_house=v.fly_in_house, lives=v.lives, power_ticks=v.power_ticks,
             score=v.score, fruit=int(v.fruit), odor_field=odor[b],
             sense=np.concatenate([obs.odor[b], obs.phero[b]], axis=1), action=action, pi=pi,
-            committed=committed, moved=moved,
+            committed=committed, moved=moved, brain_on=brain_on,
         )
         if self.replay_with_phero:
             frame["phero_field"] = phero[b]
-        if self.replay_brain:
-            missing = [n for n in s.BRAIN_FIELDS if n not in brain]
-            if missing:
-                raise ValueError(f"replay.brain이 켜졌는데 조종기가 뇌 필드를 주지 않았다: {missing}")
+        buf = self._buffer(b)
+        given = [n for n in s.BRAIN_FIELDS if n in brain]
+        if self.replay_brain and given:
+            if len(given) != len(s.BRAIN_FIELDS):
+                missing = [n for n in s.BRAIN_FIELDS if n not in brain]
+                raise ValueError(f"조종기가 뇌 필드를 일부만 주었다: 빠진 것 {missing}")
             for n in s.BRAIN_FIELDS:
                 frame[n] = np.asarray(brain[n])[b]
-        self._buffer(b).add_frame(**frame)
+            buf.with_brain = True
+        else:  # 뇌가 아닌 조종기(무작위 유령, B1): 뇌 필드 묶음을 두지 않는다 (TRD 19.13)
+            frame["brain_on"] = np.zeros(F, dtype=bool)  # 뇌 필드가 없으면 "있음" 표시도 없다
+            buf.with_brain = False
+        buf.add_frame(**frame)
 
     # ---- 종료 (초기화 전 상태) ----
     def on_life_end(self, game: int, view: GameView, events: list[Event]) -> None:

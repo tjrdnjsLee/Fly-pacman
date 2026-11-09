@@ -2,7 +2,11 @@
 
 형식 버전 2 = 19.4 기본 필드 + 19.13 뇌 필드(선택 묶음). 형식 변경은 시각화 팀과 합의한다.
 형식 버전 3 = 버전 2 + 기본 필드 `committed`, `moved` (T,4) bool (M1 뇌 ②, DECISIONS 6절). 더하기만 했다.
-쓰기는 항상 최신 버전. 읽기는 SUPPORTED_VERSIONS를 모두 받는다 (버전 2 파일에는 새 필드가 없다).
+형식 버전 4 = 버전 3 + 기본 필드 `brain_on` (T,4) bool (TRD 19.13 로그 추가 필드, DECISIONS 16절). 더하기만 했다.
+  brain_on[t, f]가 참이면 그 틱 · 초파리의 뇌 필드 값이 실제 계산된 값이다. 뇌가 아닌 조종기(무작위 유령, B1)이거나
+  그 틱에 계산하지 않은 초파리(동결된 게임)는 거짓이고, 그 자리의 뇌 필드 값은 뜻이 없다(0, KC 번호는 -1).
+  뇌가 아닌 조종기의 로그에는 뇌 필드 묶음 자체가 없다.
+쓰기는 항상 최신 버전. 읽기는 SUPPORTED_VERSIONS를 모두 받는다 (옛 버전 파일에는 새 필드가 없다).
 
 모양 표기: T 틱 수, N 걸을 수 있는 칸 수, K 켜진 KC 최대 수, M MBON 수, F = 4 초파리 수.
 """
@@ -14,8 +18,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-FORMAT_VERSION = 3
-SUPPORTED_VERSIONS = (2, 3)
+FORMAT_VERSION = 4
+SUPPORTED_VERSIONS = (2, 3, 4)
 N_FLIES = 4
 N_SENSE = 8  # 냄새 4방향 + 페로몬 4방향 (TRD 19.4)
 N_ACTIONS = 4
@@ -75,12 +79,15 @@ FIELDS = (
     Field("committed", ("T", N_FLIES), "bool", "base", "확정: 엔진이 이번 틱 제안을 결정으로 받음 (DECISIONS 4.1)",
           since=3),
     Field("moved", ("T", N_FLIES), "bool", "base", "이번 틱에 실제로 칸을 옮김 (집 출구 통과 포함)", since=3),
+    Field("brain_on", ("T", N_FLIES), "bool", "base", "뇌 필드 값이 이 틱 · 초파리에서 실제 계산된 값인지 (19.13)",
+          since=4),
     # --- 19.4 체제3만 ---
     Field("phero_field", ("T", "N"), "float16", "phero", "페로몬 장 (체제3만)"),
     # --- 19.13 뇌 필드 (replay.brain 설정으로 켜고 끔). KC 번호는 이 묶음에서 필수 ---
     Field("kc_active", ("T", N_FLIES, "K"), "int16", "brain", "켜진 KC 번호 (모자라는 자리는 -1)"),
     Field("pn_input", ("T", N_FLIES, N_PN), "float16", "brain", "PN 입력, 채널 9묶음"),
-    Field("mbon_out", ("T", N_FLIES, "M"), "float16", "brain", "개별 MBON 출력"),
+    Field("mbon_out", ("T", N_FLIES, "M"), "float16", "brain",
+          "개별 MBON의 원래 활동 Σ_i w_ij k_i (기준선 빼기 전, w = w0 + dw)"),
     Field("dan", ("T", N_FLIES), "float16", "brain", "확정 시점의 R_n - R̄, 그 외 틱은 0"),
 )
 
