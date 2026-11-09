@@ -7,6 +7,10 @@ seeds: [0, 1]
 n_games: 2
 
 engine: {kind: fake, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         b1: {force_reversal: original, scatter_chase_s: [7, 20, 7, 20, 5, 20, 5],
+              scatter_targets: [[-3, 25], [-3, 2], [31, 27], [31, 0]],
+              pinky_ahead: 4, inky_ahead: 2, clyde_chase_distance: 8,
+              no_up_cells: [[11, 12], [11, 15], [23, 12], [23, 15]]},
          release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,
          watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71,
          house_personal_dots: [0, 0, 30, 60], house_global_dots: [7, 17, 32],
