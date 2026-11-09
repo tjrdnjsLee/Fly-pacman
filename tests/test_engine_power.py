@@ -89,7 +89,11 @@ def test_revived_fly_can_catch_while_pacman_is_powered():
 def test_frightened_speed_agrees_between_decide_and_move():
     game = power_game()
     energize(game)
-    game.fly_cell[0], game.fly_dir[0] = cell(1, 6), d.EAST
+    # 반전 기회를 먼저 써서 갈림길의 일반 이동 결정만 검사한다.
+    game.fly_cell[0], game.fly_dir[0] = cell(1, 5), d.EAST
+    game.fly_acc[0] = 0.5
+    _, moved, committed, _ = game.step_flies(np.array([d.FORWARD, -1, -1, -1]))
+    assert moved[0] and committed[0] and game.fly_cell[0] == cell(1, 6)
     assert not game.decision_info()[1][0]
     assert not game.step_flies(np.full(4, -1))[1][0]
     assert game.decision_info()[1][0]
