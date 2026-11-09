@@ -44,6 +44,10 @@ _ENGINE_KEYS = (
 )
 
 
+# pending_fly_dir: -1은 비어 있고, -2는 아직 묻지 않은 기회, 0 이상은 확정한 절대 방향이다.
+_REVERSAL_OFFER = -2
+
+
 def advance_accumulator(accumulator: float, speed: float) -> tuple[float, bool]:
     """TRD 7.2: 점 감속의 음수 잔액도 유지하고, 한 틱에는 최대 한 칸 이동한다."""
     accumulator += speed
@@ -125,6 +129,7 @@ class Game:
     def configure_condition(self, cfg, condition: str) -> None:
         """조건에 맞는 이동 규칙을 판 시작 전에 고른다."""
         self.b1 = B1Motion(cfg, self.map) if condition == "b1" else None
+        self.pending_fly_dir.fill(-1)
 
     def step_pacman(self, action: int) -> list[Event]:
         """팩맨 이동, 먹기, 충돌. 목숨이 끝나면 그 틱 동안 동결. action: 절대 방향."""
@@ -179,6 +184,10 @@ class Game:
     def _set_frightened(self, frightened: bool, cause: ZCause, events: list[Event]) -> None:
         for k in np.flatnonzero(self.fly_z != frightened):
             self.fly_z[k] = frightened
+            pending = self.pending_fly_dir[k]
+            if self.b1 is None and pending < 0 and self.released[k] and not self._house[self.fly_cell[k]]:
+                # 같은 결정 단계 전에 두 파워 전환이 겹치면 관측의 z는 그대로다.
+                self.pending_fly_dir[k] = -1 if pending == _REVERSAL_OFFER else _REVERSAL_OFFER
             events.append(self._ev(Kind.Z_CHANGE, int(k), cause))
 
     def _fly_speed(self, k: int) -> float:
@@ -264,12 +273,14 @@ class Game:
                 self.fly_acc[k] = 0.0
                 self.exiting[k] = bool(self._house[self.fly_cell[k]])
                 self.fly_z[k] = False
+                self.pending_fly_dir[k] = -1
                 if self.b1 is not None:
                     self.b1.reverse[k] = False
                 events.append(self._ev(Kind.Z_CHANGE, k, ZCause.REVIVE))
                 continue
             events.append(self._ev(Kind.CATCH, k))
             self.lives -= 1
+            self.pending_fly_dir.fill(-1)
             events.append(self._ev(Kind.LIFE_LOST))
             if self.lives == 0:
                 events.append(self._ev(Kind.GAME_OVER, cause=Winner.FLIES))
@@ -281,7 +292,8 @@ class Game:
 
         반환: (events, moved (F,) bool, committed (F,) bool, active (F,) bool). 도중 종료 시 나머지는
         실행하지 않음. moved = 이번 틱에 칸을 옮겼다. committed = 이번 틱의 제안을 엔진이 그 초파리의
-        결정으로 받아들였다. 복도 · 집 출구 이동은 거짓이다 (DECISIONS 4.1의 1~6행).
+        결정으로 받아들였다. 속도가 부족한 반전 기회에서는 방향을 저장할 때만 확정하고, 다음 이동 때
+        적용한다. 복도 · 집 출구 이동과 예약 적용은 확정하지 않는다 (DECISIONS 4.1).
         """
         events: list[Event] = []
         moved = np.zeros(self.F, dtype=bool)
@@ -296,45 +308,62 @@ class Game:
                 if self.frozen:
                     break
                 continue
-            self.fly_acc[k], will_move = advance_accumulator(self.fly_acc[k], self._fly_speed(k))
+            pending = self.pending_fly_dir[k]
+            offer = pending == _REVERSAL_OFFER
+            accumulator, will_move = advance_accumulator(self.fly_acc[k], self._fly_speed(k))
+            if not will_move and not offer:
+                self.fly_acc[k] = accumulator
+                continue
+            if pending >= 0:
+                direction = int(pending)
+            else:
+                heading = int(self.fly_dir[k])
+                if self.b1 is not None and self.b1.reverse[k]:
+                    self.b1.reverse[k] = False
+                    back = int(d.opposite(heading))
+                    neighbor = self.map.nbr[self.fly_cell[k], back]
+                    options = [back] if neighbor >= 0 and not self._house[neighbor] else self._fly_options(k)
+                    action = -1  # 원작의 강제 반전은 조종기 제안·확정과 무관하다.
+                else:
+                    options = self._fly_options(k, allow_reverse=offer)
+                    action = int(actions[k])
+                if not options:
+                    self.fly_acc[k] = accumulator
+                    self.pending_fly_dir[k] = -1
+                    continue
+                if action >= 0:
+                    if action >= len(d.EGO_NAMES):
+                        raise ValueError(f"초파리 {k}: 불가능한 행동 {action}")
+                    direction = int(d.ego_to_abs(heading, action))
+                    if direction not in options:
+                        raise ValueError(f"초파리 {k}: 불가능한 행동 {action} (가능한 절대 방향 {options})")
+                else:
+                    direction = heading if heading in options else options[0]
+                committed[k] = action >= 0 and (offer or len(options) >= 2)
+
+            self.fly_acc[k] = accumulator
+            self.pending_fly_dir[k] = -1
             if not will_move:
+                if committed[k]:
+                    self.pending_fly_dir[k] = direction
                 continue
-            heading = int(self.fly_dir[k])
-            if self.b1 is not None and self.b1.reverse[k]:
-                self.b1.reverse[k] = False
-                back = int(d.opposite(heading))
-                neighbor = self.map.nbr[self.fly_cell[k], back]
-                options = [back] if neighbor >= 0 and not self._house[neighbor] else self._fly_options(k)
-                action = -1  # 원작의 강제 반전은 조종기 제안·확정과 무관하다.
-            else:
-                options = self._fly_options(k)
-                action = int(actions[k])
-            if not options:
-                continue
-            if action >= 0:
-                if action >= len(d.EGO_NAMES):
-                    raise ValueError(f"초파리 {k}: 불가능한 행동 {action}")
-                direction = int(d.ego_to_abs(heading, action))
-                if direction not in options:
-                    raise ValueError(f"초파리 {k}: 불가능한 행동 {action} (가능한 절대 방향 {options})")
-            else:
-                direction = heading if heading in options else options[0]
             self.fly_dir[k] = direction
             self.fly_cell[k] = int(self.map.nbr[self.fly_cell[k], direction])
             moved[k] = True
-            committed[k] = action >= 0 and len(options) >= 2
             self._collision_with_pacman(events, k)
             if self.frozen:  # 포획을 만든 결정은 유지하고, 뒤 초파리의 제안은 버린다.
                 break
         return events, moved, committed, active
 
-    def _fly_options(self, k: int) -> list[int]:
-        """집 재진입과 반전을 막고, 막다른 길에서만 반전을 허용한다 (TRD 4.7)."""
+    def _fly_options(self, k: int, *, allow_reverse: bool = False) -> list[int]:
+        """집 재진입을 막고, 반전 기회나 막다른 길에서만 반전을 허용한다 (TRD 4.7)."""
         neighbors = self.map.nbr[self.fly_cell[k]]
         options = [direction for direction, neighbor in enumerate(neighbors)
                    if neighbor >= 0 and not self._house[neighbor]]
         if self.b1 is not None and not self.fly_z[k] and self.fly_cell[k] in self.b1.no_up:
             options = [direction for direction in options if direction != d.NORTH]
+        if allow_reverse:
+            return options
         forward = [direction for direction in options if direction != d.opposite(self.fly_dir[k])]
         return forward or options
 
@@ -405,11 +434,15 @@ class Game:
                 continue
             if self.b1 is not None and self.b1.reverse[k]:
                 continue
-            options = self._fly_options(k)
+            pending = self.pending_fly_dir[k]
+            if pending >= 0:
+                continue
+            offer = pending == _REVERSAL_OFFER
+            options = self._fly_options(k, allow_reverse=offer)
             for direction in options:
                 legal[k, int(d.abs_to_ego(self.fly_dir[k], direction))] = True
             will_move = self.fly_acc[k] + self._fly_speed(k) >= 1.0
-            decide[k] = len(options) >= 2 and will_move and not self.frozen
+            decide[k] = not self.frozen and bool(options) and (offer or (len(options) >= 2 and will_move))
         return legal, decide
 
     def retire(self) -> None:
@@ -444,7 +477,6 @@ class Game:
                 self.exiting[waiting] = True
                 waiting = self._waiting_fly()
         self.last_house_dot_tick = self.tick - 1
-        # DECISIONS 4.1의 7~11행은 후속 범위. 절대 방향 예약 자리만 확보한다.
         self.pending_fly_dir = np.full(self.F, -1, dtype=np.int64)
         self.life_tick = 0
         self.learning_active = False
