@@ -2,3 +2,6 @@
 # the synthetic generator and the demo. Supply the original values for other runs.
 tick_rate: 9.47
 odor_c0: 0.01
+
+# KC afterglow is for display only. DAN flashes use the recorded tick directly.
+brain_kc_decay_s: 0.18

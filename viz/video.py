@@ -5,11 +5,15 @@ from __future__ import annotations
 import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Protocol
 
 import imageio_ffmpeg
-
-from .draw import Renderer
+import numpy as np
 from .replay import FPS, SIZE
+
+
+class FrameRenderer(Protocol):
+    def render(self, tick: float) -> np.ndarray: ...
 
 
 def frame_ticks(ticks: int, tick_rate: float, start: float, duration: float | None) -> tuple[float, ...]:
@@ -28,7 +32,7 @@ def frame_ticks(ticks: int, tick_rate: float, start: float, duration: float | No
     return tuple(min((start + n / FPS) * tick_rate, last) for n in range(count))
 
 
-def write_mp4(renderer: Renderer, ticks: tuple[float, ...], path: Path) -> None:
+def write_mp4(renderer: FrameRenderer, ticks: tuple[float, ...], path: Path) -> None:
     """Write RGB frames as H.264 at the exact canvas size and playback rate."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=path.parent) as work:
