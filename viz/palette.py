@@ -35,3 +35,7 @@ DAN_POSITIVE = (103, 185, 255)
 DAN_NEGATIVE = (251, 148, 87)
 INSTINCT = ODOR
 PN_STATE = FLY_FRIGHTENED
+
+# Neutral canvas for the anatomical context cloud.
+BRAIN_VOID = (7, 7, 7)
+PROBABILITY_INACTIVE = (101, 114, 135)

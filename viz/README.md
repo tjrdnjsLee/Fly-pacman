@@ -31,13 +31,21 @@ uv run --extra viz python -m viz runs/synthetic_s0_g1.npz --duration 2
 
 ```sh
 uv run python -m viz.record_demo --flybrain
-uv run --extra viz python -m viz <replay.npz> --view brain-both --fly 1 --start 8 --duration 3
+uv run --extra viz python -m viz <replay.npz> --view brain-both --brain-view a --fly 1 --start 8 --duration 3
+uv run --extra viz python -m viz <replay.npz> --view brain-both --brain-view b --fly 1 --start 8 --duration 3
 ```
 
 기록 스크립트는 진짜 엔진에서 체제 1 FlyBrain을 초기 가중치로 시작해 첫 판의
 형식 4 로그를 만든다. 한 화면만 만들려면 `--view brain` 또는
 `--view side-by-side`를 쓴다. 나란히 보기에서는 게임과 뇌가 같은 재생 틱을
-읽고, 선택한 초파리에 고리를 그린다.
+읽고, 선택한 초파리에 고리를 그린다. A는 hemibrain 데이터 전체 범위를,
+기본값인 B는 버섯체 확대와 전체 범위 미니맵을 표시한다. 출력 이름 끝에
+`-a` 또는 `-b`가 붙는다.
+
+회색 점은 hemibrain의 기록된 세포체 위치다. 버섯체 PN·KC·MBON 활동은
+회로와 대응하는 정면 시냅스 표본의 밝기로 표시한다. 확률 막대는 마지막 결정 틱의
+`pi`를 유지하고 확정 틱의 선택을 강조한다. 로그에 별도 합법 마스크가 없으므로
+0인 막대는 흐리게 그린다. 기록 정밀도에서 0으로 반올림된 확률도 같은 표시를 쓴다.
 
 기록 때 기본 설정과 다른 회로 배정이나 본능 이득을 썼다면 렌더링할 때도
 같은 `--brain-config`를 넘긴다. 뇌 화면은 정면 해부 투영 위에 기록된 모델

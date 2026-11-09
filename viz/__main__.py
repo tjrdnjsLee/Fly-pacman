@@ -23,6 +23,8 @@ def main() -> None:
     parser.add_argument("--c0", type=float, default=defaults.odor_c0, help="Original odor.c0 for the raw view")
     parser.add_argument("--no-observations", action="store_true", help="Hide sensory and decision overlays")
     parser.add_argument("--fly", type=int, choices=range(1, N_FLIES + 1), default=1, help="Fly to show in the brain views")
+    parser.add_argument("--brain-view", choices=("a", "b"), default="b",
+                        help="A fits the hemibrain context; B magnifies the mushroom body")
     parser.add_argument("--brain-config", type=Path, help="Original brain configuration for anatomical mapping")
     args = parser.parse_args()
 
@@ -46,7 +48,7 @@ def main() -> None:
 
             anatomy = Anatomy(brain_config=args.brain_config or DEFAULT_BRAIN_CONFIG)
             brain = BrainRenderer(replay, anatomy, fly=args.fly, tick_rate=args.tick_rate,
-                                  decay_s=defaults.brain_kc_decay_s)
+                                  decay_s=defaults.brain_kc_decay_s, view=args.brain_view)
         out_dir = args.out_dir or args.replay.parent
         for view in views:
             if view == "game":
@@ -55,7 +57,8 @@ def main() -> None:
                 renderer = RawRenderer(replay, c0=args.c0, observations=not args.no_observations)
             else:
                 renderer = brain if view == "brain" else BrainPairRenderer(brain)
-            path = out_dir / f"{args.replay.stem}_{view}.mp4"
+            suffix = f"{view}-{args.brain_view}" if view in ("brain", "side-by-side") else view
+            path = out_dir / f"{args.replay.stem}_{suffix}.mp4"
             write_mp4(renderer, ticks, path)
             print(path.resolve())
     except (ValueError, FileNotFoundError) as exc:
