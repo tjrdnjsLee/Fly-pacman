@@ -5,3 +5,16 @@ odor_c0: 0.01
 
 # KC afterglow is for display only. DAN flashes use the recorded tick directly.
 brain_kc_decay_s: 0.18
+
+# Display-only point and bloom settings in screen pixels.
+brain_cloud:
+  soma_sigma: 0.85
+  soma_core: 0.12
+  soma_gain: 1.6
+  soma_ceiling: 102
+  bloom_sigma: 2.25
+  bloom_gain: 7.0
+  activity_ceiling: 195
+  pn_gain: 0.19
+  kc_gain: 0.46
+  mbon_gain: 0.31

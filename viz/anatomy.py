@@ -39,12 +39,15 @@ class Anatomy:
             raise ValueError("Every neuron must have a finite coordinate or a recorded reason")
 
         self.dataset = meta["dataset"]
+        self.source_hash = circuit.source_hash
         self.coordinates = {}
+        self.body_ids = {}
         for kind, ids in (("PN", raw.pn_body), ("KC", raw.kc_body), ("MBON", raw.mbon_body), ("DAN", None)):
             rows = a["kind"] == kind
             if ids is not None and not np.array_equal(a["body"][rows], ids):
                 raise ValueError(f"Anatomy {kind} body IDs do not match replay circuit order")
             self.coordinates[kind] = xy[rows]
+            self.body_ids[kind] = a["body"][rows]
         self.missing = tuple((str(kind), int(body), str(reason))
                              for kind, body, reason in zip(a["kind"][~has_coord], a["body"][~has_coord],
                                                            reasons[~has_coord]))
