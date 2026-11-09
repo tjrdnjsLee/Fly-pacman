@@ -1,0 +1,85 @@
+{
+  "format": "mb_synapse_clouds_v1",
+  "dataset": "hemibrain:v1.2.1",
+  "server": "neuprint.janelia.org",
+  "exported_at": "2026-11-09T10:25:59+00:00",
+  "neuprint_python_version": "0.6.4",
+  "caps_per_neuron": {
+    "pn_calyx": 100,
+    "kc_calyx": 40,
+    "kc_lobe": 20,
+    "mbon_lobe": 200
+  },
+  "sampling_seed": 20261109,
+  "sampling": "뉴런마다 고유 위치를 값 순서로 정렬한 뒤 default_rng([seed, 종류 번호, bodyId])로 상한 개를 비복원 균일 추출 (추출 뒤 원래 순서 유지)",
+  "kind_codes": {
+    "pn_calyx": 1,
+    "kc_calyx": 2,
+    "kc_lobe": 3,
+    "mbon_lobe": 4
+  },
+  "layout": "{종류}_xy_um (N,2) 모든 점, {종류}_offsets (뉴런 수+1) 뉴런 i의 점 = xy[offsets[i]:offsets[i+1]], {종류}_n_orig 뉴런별 원래 시냅스 점 수(고유 위치), {종류}_body 회로 뉴런 순서",
+  "kinds": {
+    "pn_calyx": "PN, 본 칼릭스 CA(R) 안 PN→원본 KC 시냅스의 시냅스 전 위치",
+    "kc_calyx": "KC, 본 칼릭스 CA(R) 안 원본 PN→KC 시냅스의 시냅스 후 위치",
+    "kc_lobe": "KC, 꽃자루+15구획 안 원본 KC→MBON 시냅스의 시냅스 전 위치 (칼릭스와 구분해 저장)",
+    "mbon_lobe": "MBON, 꽃자루+15구획 안 원본 KC→MBON 시냅스의 시냅스 후 위치"
+  },
+  "point_definition": "뉴런별 3차원 고유 위치(복셀). 한 시냅스 전 위치가 여러 짝을 가져도 한 점. 정면 투영은 앞뒤 축을 버리므로 2차원에서 겹치는 점이 있을 수 있다",
+  "neuron_order": "PN, KC, MBON 모두 회로 원본(data/circuit/raw/mb_raw_v1.npz) 순서 = bodyId 오름차순",
+  "original_synapse_counts": "{종류}_n_orig 배열(뉴런별). 요약은 stats",
+  "stats": {
+    "pn_calyx": {
+      "neurons": 106,
+      "no_points": 0,
+      "points": 9856,
+      "orig_total": 25091,
+      "capped_neurons": 85,
+      "orig_median": 176.5
+    },
+    "kc_calyx": {
+      "neurons": 1575,
+      "no_points": 0,
+      "points": 62425,
+      "orig_total": 161415,
+      "capped_neurons": 1495,
+      "orig_median": 90.0
+    },
+    "kc_lobe": {
+      "neurons": 1575,
+      "no_points": 0,
+      "points": 31500,
+      "orig_total": 205051,
+      "capped_neurons": 1575,
+      "orig_median": 131.0
+    },
+    "mbon_lobe": {
+      "neurons": 47,
+      "no_points": 0,
+      "points": 9400,
+      "orig_total": 249548,
+      "capped_neurons": 47,
+      "orig_median": 3956.0
+    }
+  },
+  "projection": {
+    "function": "scripts/export_anatomy.py Projection (같은 함수, 같은 설정)",
+    "config": "configs/circuit_extract_v1.yaml",
+    "view": "frontal",
+    "dropped_axis": "y (앞뒤)",
+    "u (가로)": "+x × scale",
+    "v (세로, 위 = 등쪽)": "-z × scale",
+    "units": "μm",
+    "scale_um_per_voxel": 0.008
+  },
+  "sources": {
+    "anat_pn_kc__syn.parquet": "e6866612c8851665282d324d3e8ab14ae0cac4e0b8a2e7d106e9de23b15e3a80",
+    "anat_kc_mbon__syn.parquet(시냅스 후 위치 대조)": "7dca2032231378494bf80d78c31e0727df5ac3629e3c34e1030621b4f467e67c",
+    "kc_mbon_pre_post.parquet(새로 받음, 시냅스 전·후)": "0e7fdaf4f392c47844534aa3c39d12cc5f3bf80d1d83df665249d96fa42ad19b",
+    "circuit_raw": "cd6d2976791279a444cef89647a9e7daaf55d11efba79794d0ce155dda79168b"
+  },
+  "kc_mbon_post_check": "새로 받은 표의 시냅스 후 위치가 기존 캐시와 행 단위로 같음",
+  "attribution": "hemibrain v1.2.1, Janelia FlyEM. Scheffer et al. 2020, eLife 9:e57443. CC BY 4.0 (관리자 확인 후 확정).",
+  "honesty_note": "화면의 빛은 모델의 활동을 실제 해부 위치에 표시한 것이며 실제 초파리의 측정이 아니다 (TRD 19.13).",
+  "config_hash": "b6e5789fba6f8272"
+}

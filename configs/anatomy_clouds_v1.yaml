@@ -1,0 +1,20 @@
+# 해부 점구름 설정 (뇌 렌더러 v2 자료). 투영은 configs/circuit_extract_v1.yaml 의 anatomy 절과 같은 것을 쓴다.
+dataset: "hemibrain:v1.2.1"
+server: neuprint.janelia.org
+
+projection_config: configs/circuit_extract_v1.yaml   # 같은 축 변환, 같은 voxel_nm
+
+circuit_raw: data/circuit/raw/mb_raw_v1.npz           # 뉴런 순서의 기준 (PN, KC, MBON)
+anatomy: data/anatomy/mb_anatomy_v1.npz               # 좌표계 확인 시험용
+
+clouds:
+  seed: 20261109                # 점을 뽑는 고정 시드 (뉴런마다 [seed, 종류 번호, bodyId]로 갈라 쓴다)
+  caps:                         # 뉴런당 점 수 상한. 넘으면 시드로 균일하게 뽑는다
+    pn_calyx: 100
+    kc_calyx: 40
+    kc_lobe: 20
+    mbon_lobe: 200
+
+output:
+  context: data/anatomy/brain_context_v1.npz
+  clouds: data/anatomy/mb_synapse_clouds_v1.npz

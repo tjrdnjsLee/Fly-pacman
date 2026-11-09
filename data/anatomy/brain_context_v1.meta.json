@@ -1,0 +1,24 @@
+{
+  "format": "brain_context_v1",
+  "dataset": "hemibrain:v1.2.1",
+  "server": "neuprint.janelia.org",
+  "exported_at": "2026-11-09T10:24:31+00:00",
+  "neuprint_python_version": "0.6.4",
+  "n_neurons": 186061,
+  "n_with_soma": 23008,
+  "n_without_soma": 163053,
+  "projection": {
+    "function": "scripts/export_anatomy.py Projection (같은 함수, 같은 설정)",
+    "config": "configs/circuit_extract_v1.yaml",
+    "view": "frontal",
+    "dropped_axis": "y (앞뒤)",
+    "u (가로)": "+x × scale",
+    "v (세로, 위 = 등쪽)": "-z × scale",
+    "units": "μm",
+    "scale_um_per_voxel": 0.008
+  },
+  "query": "MATCH (n:Neuron) RETURN n.bodyId, n.somaLocation (뉴런 정보만, 시냅스 조회 없음)",
+  "note": "형태 배경 전용, 시뮬레이션하지 않음",
+  "hemibrain_is_half_brain": "hemibrain은 초파리 중앙 뇌의 한쪽 절반(주로 오른쪽)이다. 뇌 전체가 아니다.",
+  "stored": "세포체 2차원 좌표(xy_um)만. bodyId와 종류는 저장하지 않는다."
+}
