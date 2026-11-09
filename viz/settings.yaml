@@ -1,0 +1,4 @@
+# The replay schema stores neither value. These are the reference settings for
+# the synthetic generator and the demo. Supply the original values for other runs.
+tick_rate: 9.47
+odor_c0: 0.01
