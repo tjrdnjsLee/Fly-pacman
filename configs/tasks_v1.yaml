@@ -1,0 +1,24 @@
+# 작은 과제 (TRD 10.8) 환경 설정. 이 파일은 관리자 소유다. 학습 하이퍼파라미터(κ, g, β, η, α, γ)는 여기 두지 않는다:
+# 그 값은 configs/brain_v1.yaml에 있고 TRD 10.7의 학습 전 진단으로 정한다 (DECISIONS 17.7, 작은 과제의 성공률로 고르지 않는다).
+# 학습 시드 번호는 아직 정하지 않았다 (DECISIONS 17.3: 4000 ~ 4004는 설정을 고르는 동안 쓰지 않는다).
+
+env:
+  learner_fly: 0               # 학습자는 초파리 하나. 나머지는 입력 없음, 합법 행동 없음, 결정 안 함
+  corridor_ticks: 10           # 갈림길 앞 복도 (결정 없음, 입력은 계속 들어와 증거가 쌓인다)
+  filler_corridor_ticks: 2     # 과제 D의 필러 갈림길 앞 복도
+  amp: 0.669                   # 냄새 크기: 열린 방향 냄새 중앙값 m (DECISIONS 17.2, 진단 v2 reference_m)
+  other_side_ratio: 0.0        # 과제 B · C · D에서 냄새 없는 쪽의 크기 비율 (0 = 그쪽은 0)
+  reward_correct: 1.0
+  reward_wrong: -1.0
+  balanced: true               # 조합을 블록(조합 수)마다 한 번씩 섞어 균등 배분
+
+# 과제 D의 지연값 n (보상 전 추가 결정 수)
+delays: [0, 5, 10, 30, 50]
+
+# TRD 10.8 표 (학습 예산 · 평가). D의 예산은 지연값당이다.
+budget:
+  A: 1000
+  B: 1000
+  C: 2000
+  D: 2000
+  eval_trials: 200
