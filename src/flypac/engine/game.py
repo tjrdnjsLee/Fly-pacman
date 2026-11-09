@@ -25,13 +25,9 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
-from pathlib import Path
-
 import numpy as np
 
 from flypac.core import directions as d
-from flypac.core.config import load_config
 from flypac.core.events import Event, Kind, Winner, ZCause
 from flypac.core.timing import config_ticks
 from flypac.core.types import GameView
@@ -39,14 +35,13 @@ from flypac.engine.b1 import B1GameView, B1Motion
 from flypac.maps.original import MapSpec
 
 
-@lru_cache(maxsize=1)
-def _default_engine_settings():
-    """새 엔진 키가 없는 기존 설정은 저장소의 공통 참고값을 읽는다."""
-    return load_config(Path(__file__).resolve().parents[3] / "configs" / "m0_smoke.yaml").engine
-
-
-def _engine_setting(engine, key):
-    return engine[key] if key in engine else _default_engine_settings()[key]
+_ENGINE_KEYS = (
+    "lives", "pacman_speed", "fly_speed", "pacman_normal_speed_cap", "fly_normal_speed_cap",
+    "pacman_dot_speed", "pacman_power_speed", "pacman_power_dot_speed", "fly_frightened_speed",
+    "fly_tunnel_speed", "elroy_dots_left", "elroy_speeds", "power_s", "fruit_s",
+    "fruit_dots_eaten", "score_dot", "score_energizer", "score_ghosts", "score_fruit",
+    "watchdog_ticks", "house_personal_dots", "house_global_dots", "house_no_dot_s",
+)
 
 
 def advance_accumulator(accumulator: float, speed: float) -> tuple[float, bool]:
@@ -64,32 +59,51 @@ class Game:
     index = 0  # 묶음 안의 게임 칸 번호. 사건의 `game` 값. VecGame이 정해 준다.
 
     def __init__(self, map: MapSpec, cfg, rng: np.random.Generator):
-        e = cfg.engine
+        e = cfg.get("engine", {})
+        missing = [f"engine.{key}" for key in _ENGINE_KEYS if key not in e]
+        if "v_max_tiles_per_s" not in cfg.get("time", {}):
+            missing.append("time.v_max_tiles_per_s")
+        if missing:
+            raise ValueError("진짜 엔진에 필요한 설정 누락: " + ", ".join(missing))
+
+        self.F = len(map.fly_starts)
+        array_lengths = {
+            "house_personal_dots": self.F,
+            "house_global_dots": self.F - 1,  # 집 안에서 시작하는 초파리만
+            "score_ghosts": self.F,
+            "elroy_dots_left": 2,  # 엘로이 두 단계
+            "elroy_speeds": 2,
+            "fruit_dots_eaten": 2,  # 1레벨 과일 두 번
+        }
+        for key, size in array_lengths.items():
+            if not isinstance(e[key], (list, tuple)) or len(e[key]) != size:
+                raise ValueError(f"engine.{key}는 길이 {size}의 배열이어야 한다")
+
         self.map = map
         self.lives_max = int(e.lives)
         pac_speed, fly_speed = float(e.pacman_speed), float(e.fly_speed)
-        pac_cap = float(e.get("pacman_normal_speed_cap", pac_speed))
-        fly_cap = float(e.get("fly_normal_speed_cap", fly_speed))
+        pac_cap = float(e.pacman_normal_speed_cap)
+        fly_cap = float(e.fly_normal_speed_cap)
         self.v_pac = min(pac_speed, pac_cap)
         self.v_fly = min(fly_speed, fly_cap)
-        self.v_dot = float(e.get("pacman_dot_speed", self.v_pac))
-        self.v_pac_power = float(_engine_setting(e, "pacman_power_speed"))
-        self.v_dot_power = float(_engine_setting(e, "pacman_power_dot_speed"))
-        self.v_frightened = float(_engine_setting(e, "fly_frightened_speed"))
-        self.v_tunnel = float(_engine_setting(e, "fly_tunnel_speed"))
-        self.elroy_thresholds = tuple(_engine_setting(e, "elroy_dots_left"))
-        self.elroy_speeds = tuple(_engine_setting(e, "elroy_speeds"))
+        self.v_dot = float(e.pacman_dot_speed)
+        self.v_pac_power = float(e.pacman_power_speed)
+        self.v_dot_power = float(e.pacman_power_dot_speed)
+        self.v_frightened = float(e.fly_frightened_speed)
+        self.v_tunnel = float(e.fly_tunnel_speed)
+        self.elroy_thresholds = tuple(e.elroy_dots_left)
+        self.elroy_speeds = tuple(e.elroy_speeds)
         self.power_ticks_max = config_ticks(cfg, e.power_s)
-        self.fruit_duration = config_ticks(cfg, _engine_setting(e, "fruit_s"))
-        self.fruit_thresholds = tuple(_engine_setting(e, "fruit_dots_eaten"))
+        self.fruit_duration = config_ticks(cfg, e.fruit_s)
+        self.fruit_thresholds = tuple(e.fruit_dots_eaten)
         self.score_dot = int(e.score_dot)
         self.score_energizer = int(e.score_energizer)
-        self.score_ghosts = tuple(_engine_setting(e, "score_ghosts"))
-        self.score_fruit = int(_engine_setting(e, "score_fruit"))
+        self.score_ghosts = tuple(e.score_ghosts)
+        self.score_fruit = int(e.score_fruit)
         self.watchdog = int(e.watchdog_ticks)
-        self.house_personal_limits = _engine_setting(e, "house_personal_dots")
-        self.house_global_limits = _engine_setting(e, "house_global_dots")
-        self.house_no_dot_ticks = config_ticks(cfg, _engine_setting(e, "house_no_dot_s"))
+        self.house_personal_limits = e.house_personal_dots
+        self.house_global_limits = e.house_global_dots
+        self.house_no_dot_ticks = config_ticks(cfg, e.house_no_dot_s)
         if not all(0 <= speed <= 1 for speed in
                    (pac_speed, fly_speed, pac_cap, fly_cap, self.v_pac_power, self.v_frightened,
                     self.v_tunnel, *self.elroy_speeds)):
@@ -97,9 +111,8 @@ class Game:
         for speed, dot_speed in ((self.v_pac, self.v_dot), (self.v_pac_power, self.v_dot_power)):
             if not 0 <= dot_speed <= speed or (speed > 0 and dot_speed == 0):
                 raise ValueError("점 이동 속도는 양수이고 해당 상태의 이동 속도 이하여야 한다")
-        if self.power_ticks_max <= 0 or not self.score_ghosts:
-            raise ValueError("파워 지속 틱과 초파리 점수 목록이 필요하다")
-        self.F = len(map.fly_starts)
+        if self.power_ticks_max <= 0:
+            raise ValueError("파워 지속 틱은 양수여야 한다")
         self._fly_start_dirs = np.array([d.WEST] + [d.NORTH] * (self.F - 1), dtype=np.int64)
         self._house = np.zeros(map.nbr.shape[0], dtype=bool)
         self._house[map.house_cells] = True
@@ -117,8 +130,9 @@ class Game:
         """팩맨 이동, 먹기, 충돌. 목숨이 끝나면 그 틱 동안 동결. action: 절대 방향."""
         if self.frozen:
             return []
-        if 0 <= action < len(d.ABS_NAMES):
-            self.pac_requested_dir = int(action)
+        if not 0 <= action < len(d.ABS_NAMES):
+            raise ValueError(f"팩맨: 불가능한 행동 {action}")
+        self.pac_requested_dir = int(action)
         speed = self.v_pac_power if self.power_ticks else self.v_pac
         dot_speed = self.v_dot_power if self.power_ticks else self.v_dot
         self.pac_acc, will_move = advance_accumulator(self.pac_acc, speed)
@@ -169,15 +183,15 @@ class Game:
 
     def _fly_speed(self, k: int) -> float:
         if self._tunnel[self.fly_cell[k]]:
-            return self.v_tunnel
+            return min(self.v_fly, self.v_tunnel)
         if self.fly_z[k]:
-            return self.v_frightened
+            return min(self.v_fly, self.v_frightened)
         if k == 0 and self.elroy_stage:
             return max(self.v_fly, self.elroy_speeds[self.elroy_stage - 1])
         return self.v_fly
 
     def _update_elroy(self) -> None:
-        if self.use_global_house_count and not (self.exiting[-1] or self.released[-1]):
+        if self.lives < self.lives_max and not (self.exiting[-1] or self.released[-1]):
             return  # 목숨을 잃으면 클라이드의 재출발까지 가속을 정지한다.
         remaining = np.count_nonzero(self.dots) + np.count_nonzero(self.energizers)
         self.elroy_stage = sum(remaining <= threshold for threshold in self.elroy_thresholds)
@@ -192,6 +206,14 @@ class Game:
         self.last_house_dot_tick = self.tick
         if self.use_global_house_count:
             self.house_global_count += 1
+            if self.house_global_count == self.house_global_limits[-1]:
+                if self._house[self.fly_cell[-1]]:
+                    self.use_global_house_count = False
+                    self.house_global_count = 0
+            else:
+                for k, threshold in enumerate(self.house_global_limits[:-1], start=1):
+                    if self.house_global_count == threshold and not self.released[k]:
+                        self.exiting[k] = True
         else:
             waiting = self._waiting_fly()
             if waiting is not None:
@@ -200,13 +222,9 @@ class Game:
     def _step_house(self, k: int, events: list[Event]) -> bool:
         """문 열로 이동한 뒤 북쪽으로 한 칸씩 나간다. 문 밖에서만 방출을 기록한다."""
         if not self.exiting[k]:
-            if self._waiting_fly() != k:
+            if self.use_global_house_count or self._waiting_fly() != k:
                 return False
-            if self.use_global_house_count:
-                ready = self.house_global_count >= self.house_global_limits[k - 1]
-            else:
-                ready = self.house_personal_count[k] >= self.house_personal_limits[k]
-            if not ready:
+            if self.house_personal_count[k] < self.house_personal_limits[k]:
                 return False
             self.exiting[k] = True
 
@@ -344,7 +362,7 @@ class Game:
                     self.exiting[waiting] = True
                     self.last_house_dot_tick = self.tick
             self._update_elroy()
-            if self.tick + 1 >= self.watchdog:
+            if self.tick + 1 > self.watchdog:
                 events.append(self._ev(Kind.GAME_OVER, cause=Winner.CENSORED))
                 self.frozen = True
         self.tick += 1
@@ -417,7 +435,6 @@ class Game:
         self.elroy_stage = 0
         self.released = ~self._house[self.fly_cell]  # 처음부터 집 밖인 1번만 이동한다.
         self.exiting = np.zeros(self.F, dtype=bool)
-        self.house_personal_count = np.zeros(self.F, dtype=np.int64)
         self.house_global_count = 0
         self.use_global_house_count = self.lives < self.lives_max
         if not self.use_global_house_count:
@@ -447,6 +464,7 @@ class Game:
         self.score = 0
         self.ghost_streak = 0
         self.pellets_eaten = 0
+        self.house_personal_count = np.zeros(self.F, dtype=np.int64)
         self.tick = 0
         self.reset_life()
 

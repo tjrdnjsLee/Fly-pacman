@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import numpy as np
 
-from flypac.core.config import Config
+from flypac.core.config import Config, load_config
 from flypac.ghosts.random_ghost import RandomGhost
 from flypac.maps.original import load_original
 from flypac.pacman.base import PacmanController
@@ -18,9 +19,7 @@ BASE = {
     "condition": "regime1",
     "seeds": [0],
     "n_games": 2,
-    "engine": {"kind": "fake", "lives": 3, "pacman_speed": 1.0, "fly_speed": 1.0,
-               "release_ticks": [0, 10, 20, 30], "score_dot": 10, "score_energizer": 50,
-               "watchdog_ticks": 20000, "power_s": 6},
+    "engine": load_config(Path(__file__).resolve().parents[1] / "configs" / "m0_smoke.yaml").engine.to_dict(),
     "time": {"v_max_tiles_per_s": 9.47},
     "odor": {"D": 1.0, "lam": 0.05, "s": 1.0, "c0": 0.01, "reset_on_life_loss": True},
     "phero": {"D": 1.0, "lam": 0.1},
