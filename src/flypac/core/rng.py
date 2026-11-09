@@ -15,6 +15,7 @@ PURPOSES = {
     "kc_tiebreak": 6,   # 뇌: 상위 k 경계의 KC 동률 끊기 (M1 뇌 ②)
     "brain_action": 7,  # 뇌: 행동 표본
     "repr_synth": 8,    # 표현력 시험의 합성 자료
+    "task": 9,          # 작은 과제(T자 미로, TRD 10.8)의 시행 자극 · 균등 배분
 }
 
 
