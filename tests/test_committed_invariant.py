@@ -88,6 +88,10 @@ def test_committed_implies_decide_and_action_every_tick(kind, fly_speed, ghosts)
                 if act[b, k] < 0:
                     assert not committed[b, k], f"{where}: 행동 -1인데 확정"
                 reversal = z_before is not None and z[b, k] != z_before[k]
+                # 역방향 (표 1, 2, 7, 11): 결정을 물었고 행동이 ≥ 0이고 그 초파리의 차례까지 게임이 끝나지 않았으면 확정이다.
+                # 이동하며 확정하거나 (①, ②에서 속도가 충분), 움직이지 않고 지연 반전을 저장하며 확정한다 (②, 표 7).
+                if alive[b] and decide[b, k] and act[b, k] >= 0 and k <= last_turn:
+                    assert committed[b, k], f"{where}: 결정을 물었고 행동 {act[b, k]}인데 확정되지 않았다"
                 if alive[b] and decide[b, k] and not reversal:  # 결정 시점 ①
                     if k <= last_turn:
                         assert moved[b, k], f"{where}: 결정 시점 ①인데 이번 틱에 이동하지 않았다"
