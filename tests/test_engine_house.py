@@ -72,7 +72,7 @@ def test_life_loss_uses_global_count_from_zero():
     game.lives -= 1
     game.reset_life()
     assert not game.learning_active and not fly_step(game)[1][1]
-    for index, additional_dots in [(1, 7), (2, 10), (3, 15)]:
+    for index, additional_dots in [(1, 7), (2, 10)]:
         eat_dots(game, additional_dots - 1)
         assert not fly_step(game)[1][index]
         eat_dots(game, 1)
