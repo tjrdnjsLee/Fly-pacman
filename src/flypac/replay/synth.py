@@ -1,7 +1,7 @@
 """가짜 재생 로그 생성기 (TRD 19.4, 19.12). 시각화 팀이 M1부터 쓴다.
 
 원작 맵 위에서 무작위로 움직이는 초파리 넷과 냄새 원천(팩맨 자리) 하나로 형식에 맞는 로그를 만든다.
-뇌 필드(TRD 19.13)도 만들 수 있다: 무작위 상위 k KC, 가끔 ±값의 DAN.
+뇌 필드(TRD 19.13)도 만들 수 있다: 무작위 상위 k KC, 확정 틱에만 가끔 ±값의 DAN.
 뇌 회로 크기는 자리표시값이다.
 """
 
@@ -122,7 +122,7 @@ def make_synthetic_arrays(
             fly_acc=rng.random(F), fly_z=np.zeros(F, bool), fly_in_house=in_house, lives=3,
             power_ticks=0, score=score, fruit=0, odor_field=field.c[0].copy(), sense=np.concatenate(
                 [obs.odor[0], obs.phero[0]], axis=1), action=action, pi=pi,
-            committed=committed, moved=moved,
+            committed=committed, moved=moved, brain_on=np.full(F, brain),
         )
         if phero:
             frame["phero_field"] = ph_field.c[0].copy()
@@ -133,7 +133,7 @@ def make_synthetic_arrays(
             for j in range(F):
                 if not in_house[j]:
                     kc[j] = rng.choice(n_kc, size=k, replace=False)
-                if decide[0, j] and rng.random() < PLACEHOLDER_DAN_PROB:
+                if committed[j] and rng.random() < PLACEHOLDER_DAN_PROB:  # DAN은 확정 틱에만 (19.13)
                     dan[j] = rng.choice([-1.0, 1.0]) * rng.random()
             frame.update(kc_active=kc, pn_input=pn, mbon_out=rng.random((F, n_mbon)), dan=dan)
         buf.add_frame(**frame)
