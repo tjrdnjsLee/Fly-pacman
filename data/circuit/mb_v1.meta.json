@@ -1,0 +1,148 @@
+{
+ "format": "mb_v1",
+ "status": "실험용 확정 (작은 과제 A~D 통과)",
+ "generator": "make_experiment_circuit_v1",
+ "created_at": "2026-11-09T15:06:23+00:00",
+ "dataset": "hemibrain:v1.2.1",
+ "raw_file": "data/circuit/raw/mb_raw_v1.npz",
+ "raw_sha256": "cd6d2976791279a444cef89647a9e7daaf55d11efba79794d0ce155dda79168b",
+ "assign_file": "configs/circuit_assign_v1.yaml",
+ "assign_config_hash": "fe82464e82888fdb",
+ "assign_seed": 0,
+ "branch": "G",
+ "brain_config": "configs/brain_v1.yaml",
+ "kc": {
+  "rho": 0.05,
+  "theta": 0.0
+ },
+ "learn": {
+  "kappa": 0.2,
+  "g": 0.03747,
+  "beta": 4,
+  "eta": 1.129,
+  "alpha_rbar": 0.01,
+  "gamma": 0.9
+ },
+ "hyperparameter_hash": "f05d03a2f4ea7277",
+ "hyperparameter_rule": "DECISIONS 18.7",
+ "counts": {
+  "n_pn": 106,
+  "n_kc": 1575,
+  "n_mbon": 47,
+  "bundle_sizes": [
+   12,
+   12,
+   12,
+   11
+  ]
+ },
+ "connection_density": 0.26214116852414726,
+ "arrays": {
+  "J": [
+   [
+    1575,
+    9
+   ],
+   "float64"
+  ],
+  "alpha": [
+   [
+    9
+   ],
+   "float64"
+  ],
+  "w0": [
+   [
+    1575,
+    47
+   ],
+   "float64"
+  ],
+  "M": [
+   [
+    1575,
+    47
+   ],
+   "bool"
+  ],
+  "J_pn": [
+   [
+    1575,
+    106
+   ],
+   "int32"
+  ],
+  "W0": [
+   [
+    1575,
+    47
+   ],
+   "int32"
+  ],
+  "mbon_bundle": [
+   [
+    47
+   ],
+   "int64"
+  ],
+  "pn_channel": [
+   [
+    106
+   ],
+   "int64"
+  ],
+  "pn_body": [
+   [
+    106
+   ],
+   "int64"
+  ],
+  "pn_type": [
+   [
+    106
+   ],
+   "<U9"
+  ],
+  "pn_glom": [
+   [
+    106
+   ],
+   "<U4"
+  ],
+  "kc_body": [
+   [
+    1575
+   ],
+   "int64"
+  ],
+  "kc_type": [
+   [
+    1575
+   ],
+   "<U10"
+  ],
+  "kc_class": [
+   [
+    1575
+   ],
+   "<U5"
+  ],
+  "mbon_body": [
+   [
+    47
+   ],
+   "int64"
+  ],
+  "mbon_type": [
+   [
+    47
+   ],
+   "<U11"
+  ]
+ },
+ "channel_order": "냄새 좌 · 앞 · 우 · 뒤, 상태 z, 페로몬 좌 · 앞 · 우 · 뒤 (J의 열)",
+ "bundle_order": "좌 · 직진 · 우 · 반전 (mbon_bundle의 값)",
+ "identity_order": "pn_* · kc_* · mbon_*는 J_pn · W0 · J · w0의 행 · 열 순서 그대로 (bodyId · 종류)",
+ "passed": "작은 과제 A~C (DECISIONS 19), D (지연 n = 0, 5 합격; n = 10, 30, 50은 저하 곡선 기록)",
+ "npz_sha256": "0a92eecf6d0483b6d90855eb6e441c32073542c9482c33ed7239f275b03be2fe"
+}
