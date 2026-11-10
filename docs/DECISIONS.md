@@ -919,3 +919,8 @@ $$
 - `flies.csv`의 "합계 R"은 반올림 없이 `repr`로 쓴다 (이전에는 유효숫자 6자리).
 - 검사: `scripts/check_reward_ledger.py <결과 폴더>`는 CSV만 읽어 판마다 Σ R을 대조한다 (허용 오차 1e-12). 체제 1: $(1-3p)N_c - qN_e$ (p = 1/3이면 $-qN_e$), 체제 2 · 3: $N_c - qN_e$, B0 · B1: 0. $N_c$, $N_e$는 활성 사건만 센다. p, q는 결과 폴더 `config.yaml`의 적용값이다.
 - 한계: 기록기가 `regime.rewards`를 사건마다 따로 불러 합하므로, 이것은 체제 함수의 기록이 맞는지 보는 검사다. 뇌가 받은 R 자체를 읽는 것은 아니다.
+
+## 22. 실행 환경 기록과 장치 (2026-11-10)
+
+- 결과 폴더에 `environment.json`을 쓴다: 파이썬 · numpy 버전, 플랫폼, 팩맨 종류, 팩맨 장치 설정과 **실제로 쓰인 장치**(`auto`면 해석한 값), torch 버전, `torch.version.cuda`, GPU 이름(cuda일 때). 팩맨이 PPO가 아니면 장치와 torch 항목은 `null`이다. 장치는 `PPOPacman`과 같은 `resolve_device` 규칙으로 정한다.
+- 같은 장치에서는 같은 설정의 결과가 바이트 단위로 같다 (CSV). cpu와 cuda는 다를 수 있다 (통합 실행에서 B0의 틱 수가 9,598 대 9,629). **짝지은 비교는 모든 조건이 같은 장치일 때만 성립한다.** 실험 설정은 `pacman.device`를 명시한다 (`configs/integ_v1.yaml`은 `cuda`).

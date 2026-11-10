@@ -7,6 +7,7 @@ replay/*.npz를 만든다. CSV는 utf-8-sig로 쓰고 utf-8-sig로 읽는다 (�
 from __future__ import annotations
 
 import csv
+import json
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from flypac.core.config import Config
 from flypac.core.directions import BACK
 from flypac.core.events import Event, Kind
 from flypac.core.types import FlyObs, GameView
+from flypac.recording.envinfo import environment_info
 from flypac.regimes import make_regime
 from flypac.replay import schema as s
 from flypac.replay.writer import ReplayBuffer, replay_filename, write_replay
@@ -91,6 +93,8 @@ class Recorder:
         self.run_dir.mkdir(parents=True, exist_ok=False)
         (self.run_dir / "config.yaml").write_text(
             yaml.safe_dump(saved_cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        (self.run_dir / "environment.json").write_text(
+            json.dumps(environment_info(cfg), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         self.git_commit = _git_commit()
         (self.run_dir / "git_commit.txt").write_text(self.git_commit + "\n", encoding="utf-8")
         self.seeds = [int(x) for x in cfg.seeds]

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -49,7 +51,20 @@ def test_real_engine_ppo_flybrain_recorder_runs_one_game(tmp_path, condition):
     saved = load_config(run_dir / "config.yaml")
     if condition != "b0":
         assert saved.reward.p == pytest.approx(1 / 3) and saved.reward.q == 1.0
+    env = json.loads((run_dir / "environment.json").read_text(encoding="utf-8"))
+    assert env["pacman_device_setting"] == "cpu" and env["pacman_device"] == "cpu" and env["gpu"] is None
+    assert env["torch"] == torch.__version__
     replays = sorted((run_dir / "replay").glob("*.npz"))
     assert len(replays) == 1
     _, log = read_replay(replays[0])
     assert np.asarray(log["brain_on"]).any()  # 뇌 필드가 실제로 계산되어 기록됨
+
+
+def test_environment_info_resolves_auto_to_actual_device():
+    from flypac.recording.envinfo import environment_info
+
+    cfg = Config({"pacman": {"kind": "ppo", "device": "auto"}})
+    info = environment_info(cfg)
+    expected = "cuda" if torch.cuda.is_available() else "cpu"
+    assert info["pacman_device_setting"] == "auto" and info["pacman_device"] == expected
+    assert (info["gpu"] is not None) == (expected == "cuda") and info["torch_cuda"] == torch.version.cuda

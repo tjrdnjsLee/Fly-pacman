@@ -185,3 +185,12 @@ def test_replay_records_committed_and_moved(tmp_path, ghosts):
     step = np.diff(lives) != 0
     near_end = step | np.r_[False, step[:-1]]
     assert not (changed & ~near_end[:, None] & ~arr["moved"][:-1]).any()
+
+
+def test_environment_json_without_torch_fields_for_rule_based(tmp_path):
+    import json
+
+    run(tmp_path)
+    env = json.loads((tmp_path / "run" / "environment.json").read_text(encoding="utf-8"))
+    assert env["pacman_kind"] == "rule_based" and env["pacman_device"] is None and env["torch"] is None
+    assert env["python"] and env["numpy"]
