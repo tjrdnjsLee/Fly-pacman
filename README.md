@@ -51,7 +51,7 @@ CSV 결과 파일은 UTF-8 BOM(`utf-8-sig`)으로 저장되어 엑셀에서 한�
 
 ## 4. docs 폴더와 작업 지시서
 
-PRD · TRD는 저장소의 `docs/`에 있다 (`PRD.md` 첫 줄 v1.1, `TRD.md` 첫 줄 v0.5). 관리자가 팀 공유를 위해 올렸고 공개 문서다 (DECISIONS 9절). PRD · TRD는 관리자만 고친다. `docs/DECISIONS.md`에는 각 담당이 PR로 결정을 추가하고, 관리자가 승인한다.
+PRD · TRD는 저장소의 `docs/`에 있다 (`PRD.md` 첫 줄 v1.2, `TRD.md` 첫 줄 v0.6). 관리자가 팀 공유를 위해 올렸고 공개 문서다 (DECISIONS 9절). PRD · TRD는 관리자만 고친다. `docs/DECISIONS.md`에는 각 담당이 PR로 결정을 추가하고, 관리자가 승인한다.
 
 작업 지시서(`*_TASK.md`)는 비공개다. 받은 지시서는 저장소 루트에 두고 **절대 커밋하지 않는다.** `.gitignore`가 막아 주지만, `git add .`나 `git add -A`를 쓰지 말고 파일을 지정해서 add하는 습관을 들인다. 테스트와 CI는 `docs/`의 PRD · TRD에 의존하지 않는다.
 
@@ -144,7 +144,7 @@ TRD 절 번호다.
 | 시각화 · 포스터 | 4.6, 13.3, 18, 19 (19.13 포함) |
 | 뇌 | 4, 5.5, 6, 8 ~ 10, 13, 19.13 |
 
-[`docs/DECISIONS.md`](docs/DECISIONS.md)도 함께 따른다. 승인된 DECISIONS 항목이 해당 TRD 조항보다 우선한다. TRD v0.6에서 정리한다.
+[`docs/DECISIONS.md`](docs/DECISIONS.md)도 함께 따른다. 승인된 DECISIONS 항목이 해당 TRD 조항보다 우선한다. TRD v0.6에 반영했다. 이후 항목은 v0.7에서 정리한다.
 
 ## 9. 관리자용: main 브랜치 보호 체크리스트
 
