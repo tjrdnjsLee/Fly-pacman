@@ -1,0 +1,33 @@
+# 통합 실행 (M2 준비): 진짜 엔진 + 학습한 팩맨(PPO) + 초파리 뇌. 학습곡선이 아니라 "끝까지 도는가"를 본다.
+# 실행 (condition은 regime1 · regime2 · b0 중 하나로 바꿔 세 번 돌린다):
+#   OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+#     uv run --extra pacman python scripts/run_experiment.py configs/integ_v1.yaml
+# reward 키는 적지 않는다: p, q는 DECISIONS 20절의 공통 기본값이 들어가고 결과의 config.yaml에 적용값이 남는다.
+# 팩맨 체크포인트(runs/는 저장소에 없다)는 DECISIONS 14.6의 best.pt (sha256 4670fad2...).
+# 이 파일은 관리자 소유다. brain_repr_v1.yaml(닫힌 시험)이나 TRD 13.1 예시를 틀로 쓰지 않았다.
+experiment: integ_v1
+condition: regime1        # regime1 | regime2 | b0   (b0p는 없앴다: DECISIONS 10.4)
+seeds: [0, 1]
+n_games: 20
+
+engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         b1: {force_reversal: original, scatter_chase_s: [7, 20, 7, 20, 5, 20, 5],
+              scatter_targets: [[-3, 25], [-3, 2], [31, 27], [31, 0]],
+              pinky_ahead: 4, inky_ahead: 2, clyde_chase_distance: 8,
+              no_up_cells: [[11, 12], [11, 15], [23, 12], [23, 15]]},
+         release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,
+         watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71,
+         house_personal_dots: [0, 0, 30, 60], house_global_dots: [7, 17, 32],
+         house_no_dot_s: 4, pacman_power_speed: 0.90, pacman_power_dot_speed: 0.79,
+         fly_frightened_speed: 0.50, score_ghosts: [200, 400, 800, 1600],
+         fruit_s: 9.5, fruit_dots_eaten: [70, 170], score_fruit: 100,
+         elroy_dots_left: [20, 10], elroy_speeds: [0.80, 0.85],
+         fly_tunnel_speed: 0.40, pacman_normal_speed_cap: 0.80,
+         fly_normal_speed_cap: 0.75}  # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
+time:   {v_max_tiles_per_s: 9.47}
+odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
+phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
+pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, device: auto, eps: 0.0}
+ghosts: {kind: flybrain, config: configs/brain_v1.yaml}
+replay: {keep_games: [1, 2], brain: true}   # TODO(미결 17): 남길 판 고르기는 고정 번호만
+run:    {max_loop_ticks: 2000000}
