@@ -5,18 +5,22 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core.events import Event, Kind
-from flypac.regimes.base import Regime, fly_index
+from flypac.regimes.base import REWARD_DEFAULTS, Regime, fly_index
 
 
 class Regime1(Regime):
+    _reward_defaults = REWARD_DEFAULTS
+
     def rewards(self, events: list[Event]) -> np.ndarray:
         R = np.zeros(self.F)
         for ev in events:
             if not ev.active:  # 발생 시점 기준
                 continue
             if ev.kind is Kind.CATCH:
-                R[:] -= self.p  # 나머지의 고통
-                R[fly_index(ev, self.F)] = 1.0  # 잡은 놈
+                fly = fly_index(ev, self.F)
+                R[:fly] -= self.p
+                R[fly] += 1.0
+                R[fly + 1:] -= self.p
             elif ev.kind is Kind.EATEN:
                 R[fly_index(ev, self.F)] -= self.q
         return R

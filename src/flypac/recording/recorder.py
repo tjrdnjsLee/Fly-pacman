@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from flypac.core.config import Config
 from flypac.core.directions import BACK
 from flypac.core.events import Event, Kind
 from flypac.core.types import FlyObs, GameView
@@ -77,24 +78,32 @@ class Recorder:
         """결과 폴더 생성, 설정 · 커밋 번호 저장."""
         self.run_dir = Path(run_dir)
         self.cfg = cfg
+        self.condition = str(cfg.condition)
+        self.regime = make_regime(cfg)
+        saved_cfg = cfg.to_dict()
+        if self.condition in ("regime1", "regime2"):
+            reward = saved_cfg.get("reward")
+            if not isinstance(reward, dict):
+                reward = {}
+            reward.update(p=self.regime.p, q=self.regime.q)
+            saved_cfg["reward"] = reward
+
         self.run_dir.mkdir(parents=True, exist_ok=False)
         (self.run_dir / "config.yaml").write_text(
-            yaml.safe_dump(cfg.to_dict(), allow_unicode=True, sort_keys=False), encoding="utf-8")
+            yaml.safe_dump(saved_cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
         self.git_commit = _git_commit()
         (self.run_dir / "git_commit.txt").write_text(self.git_commit + "\n", encoding="utf-8")
-        self.condition = str(cfg.condition)
         self.seeds = [int(x) for x in cfg.seeds]
         B = len(self.seeds)
         self.games_csv = _Csv(self.run_dir / "games.csv", GAMES_COLS)
         self.lives_csv = _Csv(self.run_dir / "lives.csv", LIVES_COLS)
         self.flies_csv = _Csv(self.run_dir / "flies.csv", FLIES_COLS)
-        self.regime = make_regime(cfg)
         rep = cfg.get("replay", {})
         self.replay_brain = bool(rep.get("brain", False)) if rep else False
         self.replay_max_bytes = int(rep.get("max_bytes", 0)) if rep else 0  # TODO(미결 17): 저장 용량 상한
         self.replay_bytes = 0
         self.replay_with_phero = self.condition == "regime3"
-        self.config_hash = cfg.hash()
+        self.config_hash = Config(saved_cfg).hash()
         self.replay_files: list[Path] = []
         # 칸(게임)별 상태
         self.game_no = np.ones(B, dtype=np.int64)

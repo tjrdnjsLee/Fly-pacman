@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import numpy as np
 
+from flypac.core.config import load_config
 from flypac.core.events import Event
 
 N_FLIES = 4
+REWARD_DEFAULTS = load_config(Path(__file__).with_name("reward_defaults.yaml"))
 
 
 def fly_index(ev: Event, n_flies: int = N_FLIES) -> int:
@@ -23,11 +26,19 @@ def fly_index(ev: Event, n_flies: int = N_FLIES) -> int:
 
 
 class Regime(ABC):
+    _reward_defaults = None
+
     def __init__(self, cfg):
         self.cfg = cfg
         self.F = N_FLIES
-        self.p = float(cfg.reward.p)  # TODO(미결 4): p, q 값은 자리표시
-        self.q = float(cfg.reward.q)
+        if self._reward_defaults is None:
+            p, q = cfg.reward.p, cfg.reward.q
+        else:
+            reward = getattr(cfg, "reward", None)
+            p = getattr(reward, "p", self._reward_defaults.p)
+            q = getattr(reward, "q", self._reward_defaults.q)
+        self.p = float(p)
+        self.q = float(q)
 
     @abstractmethod
     def rewards(self, events: list[Event]) -> np.ndarray:
