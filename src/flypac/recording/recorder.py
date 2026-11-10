@@ -17,7 +17,7 @@ import yaml
 
 from flypac.core.config import Config
 from flypac.core.directions import BACK
-from flypac.core.events import Event, Kind
+from flypac.core.events import Event, Kind, ZCause
 from flypac.core.types import FlyObs, GameView
 from flypac.recording.envinfo import environment_info
 from flypac.regimes import make_regime
@@ -32,7 +32,8 @@ GAMES_COLS = ["조건", "시드", "판", "점수", "승자", "틱 수", "누적 
 LIVES_COLS = ["조건", "시드", "판", "목숨 번호", "종료 원인", "포획까지 틱", "잡은 초파리", "출발 전 포획 여부"] + [
     f"먹힘 수_초파리{k}" for k in range(F)]
 FLIES_COLS = ["조건", "시드", "판", "초파리", "합계 R", "보상 사건 수", "결정에서 보상까지 지연(결정 수)", "포획",
-              "먹힘", "상태 전환 시 반전 기회", "상태 전환 시 반전 횟수"]
+              "먹힘", "상태 전환 시 반전 기회", "상태 전환 시 반전 횟수",
+              "파워 시작 반전 기회", "파워 시작 반전 횟수", "파워 종료 반전 기회", "파워 종료 반전 횟수"]
 
 _CAUSE = {"CATCH": "포획", "CLEAR": "클리어", "CENSORED": "중단"}
 
@@ -128,7 +129,11 @@ class Recorder:
                 "delay_sum": np.zeros(F), "delay_n": np.zeros(F, dtype=np.int64),
                 "dec_since": np.zeros(F, dtype=np.int64),
                 "catches_by": np.zeros(F, dtype=np.int64), "eaten_by": np.zeros(F, dtype=np.int64),
-                "rev_chances": np.zeros(F, dtype=np.int64)}
+                "rev_chances": np.zeros(F, dtype=np.int64), "rev_count": np.zeros(F, dtype=np.int64),
+                # 원인별 (0 시작, 1 종료). 원인을 모르는 기회는 합계에서 두 원인을 뺀 값이다 (DECISIONS 23)
+                "rev_chances_by": np.zeros((2, F), dtype=np.int64), "rev_count_by": np.zeros((2, F), dtype=np.int64),
+                # 반전 기회를 연 Z_CHANGE의 원인: -1 없음, 0 POWER_START, 1 POWER_END, 그 사건의 틱 번호
+                "open_cause": np.full(F, -1, dtype=np.int64), "open_tick": np.zeros(F, dtype=np.int64)}
 
     @staticmethod
     def _new_life_stats() -> dict:
@@ -154,7 +159,12 @@ class Recorder:
                 gs["catch_active"] += int(e.active)
                 gs["catches_by"][e.fly] += 1
                 ls["catch_fly"], ls["catch_inactive"], ls["catch_tick"] = e.fly, not e.active, int(self.life_ticks[b])
+            elif e.kind is Kind.Z_CHANGE:
+                # 파워 시작 · 종료가 반전 기회를 연다. 부활은 열지 않는다 (엔진이 예약을 비운다)
+                gs["open_cause"][e.fly] = {ZCause.POWER_START: 0, ZCause.POWER_END: 1}.get(e.cause, -1)
+                gs["open_tick"][e.fly] = self.ticks_total[b]
             elif e.kind is Kind.EATEN:
+                gs["open_cause"][e.fly] = -1
                 gs["eaten"] += 1
                 gs["eaten_active"] += int(e.active)
                 gs["eaten_by"][e.fly] += 1
@@ -176,7 +186,22 @@ class Recorder:
         self.decisions_total[b] += int(decided.sum())
         gs = self.game_stats[b]
         gs["dec_since"] += decided.astype(np.int64)
-        gs["rev_chances"] += decided & obs.legal[b, :, BACK]
+        chance = decided & obs.legal[b, :, BACK]
+        gs["rev_chances"] += chance
+        brain = brain or {}
+        action = np.asarray(brain.get("action", np.full((len(views), F), -1)))[b]
+        no = np.zeros((len(views), F), dtype=bool)
+        committed = np.asarray(brain.get("committed", no), dtype=bool)[b]
+        # 반전 횟수: 반전 기회에서 확정된 행동이 BACK인 횟수. 지연 반전은 저장한 틱(committed)에 센다 (DECISIONS 23)
+        reversed_ = chance & committed & (action == BACK)
+        gs["rev_count"] += reversed_
+        # 원인별: 기회를 연 Z_CHANGE는 같은 틱(파워 시작) 또는 바로 앞 틱(파워 종료)에 있다. 더 오래된 것은 버린다
+        fresh = (gs["open_cause"] >= 0) & (self.ticks_total[b] - gs["open_tick"] <= 1)
+        for c in (0, 1):
+            m = chance & fresh & (gs["open_cause"] == c)
+            gs["rev_chances_by"][c] += m
+            gs["rev_count_by"][c] += m & reversed_
+        gs["open_cause"][chance] = -1  # 반전 기회는 한 번 쓰이면 닫힌다 (BACK이 합법이 아닌 보통 결정은 닫지 않는다)
         # 이번 틱의 보상 사건 (결정은 위에서 먼저 센다)
         for e in self.pending[b]:
             r = self.regime.rewards([e])
@@ -188,11 +213,7 @@ class Recorder:
                 gs["dec_since"][k] = 0
         self.pending[b] = []
 
-        brain = brain or {}
-        action = np.asarray(brain.get("action", np.full((len(views), F), -1)))[b]
         pi = np.asarray(brain.get("pi", np.zeros((len(views), F, 4))))[b]
-        no = np.zeros((len(views), F), dtype=bool)
-        committed = np.asarray(brain.get("committed", no), dtype=bool)[b]
         moved = np.asarray(brain.get("moved", no), dtype=bool)[b]
         brain_on = np.asarray(brain.get("brain_on", no), dtype=bool)[b]
         frame = dict(
@@ -225,6 +246,7 @@ class Recorder:
         """초기화 전의 종료 상태로 lives.csv 한 줄."""
         b = game
         ls = self.life_stats[b]
+        self.game_stats[b]["open_cause"][:] = -1  # 목숨이 끝나면 열린 반전 기회는 없어진다
         winner = next((e.winner for e in events if e.kind is Kind.GAME_OVER), None)
         if any(e.kind is Kind.CATCH for e in events):
             cause = _CAUSE["CATCH"]
@@ -255,8 +277,9 @@ class Recorder:
             self.flies_csv.row(base + [k, repr(float(gs["sumR"][k])), int(gs["reward_events"][k]),
                                        f"{gs['delay_sum'][k] / n:.6g}" if n else "",
                                        int(gs["catches_by"][k]), int(gs["eaten_by"][k]),
-                                       int(gs["rev_chances"][k]),
-                                       ""])  # TODO(M1): 반전 횟수는 z 전환(파워 쿠키)이 생긴 뒤 센다
+                                       int(gs["rev_chances"][k]), int(gs["rev_count"][k]),
+                                       int(gs["rev_chances_by"][0][k]), int(gs["rev_count_by"][0][k]),
+                                       int(gs["rev_chances_by"][1][k]), int(gs["rev_count_by"][1][k])])
         for c in (self.games_csv, self.lives_csv, self.flies_csv):
             c.flush()
         self.game_stats[b] = self._new_game_stats()
