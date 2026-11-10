@@ -4,7 +4,7 @@
 circuit:
   raw: data/circuit/raw/mb_raw_v1.npz        # 원본 회로 (회로 해시는 이 파일의 sha256)
   assign: configs/circuit_assign_v1.yaml     # 분기 · 페로몬 사구체 · MBON 묶음 탐색 설정
-  seed: 0          # 확정 (작은 과제 A~C 통과, DECISIONS 19절). 바꾸면 18절 규칙으로 하이퍼파라미터를 다시 잰다
+  seed: 0          # 확정 (작은 과제 A~D 통과, DECISIONS 19절·19.6). 바꾸면 18절 규칙으로 하이퍼파라미터를 다시 잰다
 
 kc:
   rho: 0.05        # 상위 k 비율, k = ceil(rho * N_KC). DECISIONS 17.3 (ρ = 0.05 먼저, 과제 C 실패 시 0.10)
