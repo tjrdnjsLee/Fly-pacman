@@ -14,8 +14,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       PYTHONUTF8: "1"
+      # PPO 경로 시험(torch)을 건너뛰지 않고 실제로 돌린다. torch가 없으면 시험 시작에서 실패한다 (tests/conftest.py).
+      FLYPAC_REQUIRE_TORCH: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
-      - run: uv run pytest
+      # 잠금 파일(uv.lock)과 pyproject.toml은 그대로 둔다 (실험 머신은 CUDA torch). CI에서만 같은 버전의 CPU 빌드를 설치한다.
+      - run: uv pip install "torch==2.15.0" --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+      # --no-sync: uv run이 환경을 잠금 파일대로 되돌려 CPU torch를 지우지 않게 한다
+      - run: uv run --no-sync pytest
