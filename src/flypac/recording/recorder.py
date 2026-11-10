@@ -128,7 +128,7 @@ class Recorder:
                 "delay_sum": np.zeros(F), "delay_n": np.zeros(F, dtype=np.int64),
                 "dec_since": np.zeros(F, dtype=np.int64),
                 "catches_by": np.zeros(F, dtype=np.int64), "eaten_by": np.zeros(F, dtype=np.int64),
-                "rev_chances": np.zeros(F, dtype=np.int64)}
+                "rev_chances": np.zeros(F, dtype=np.int64), "rev_count": np.zeros(F, dtype=np.int64)}
 
     @staticmethod
     def _new_life_stats() -> dict:
@@ -177,6 +177,12 @@ class Recorder:
         gs = self.game_stats[b]
         gs["dec_since"] += decided.astype(np.int64)
         gs["rev_chances"] += decided & obs.legal[b, :, BACK]
+        brain = brain or {}
+        action = np.asarray(brain.get("action", np.full((len(views), F), -1)))[b]
+        no = np.zeros((len(views), F), dtype=bool)
+        committed = np.asarray(brain.get("committed", no), dtype=bool)[b]
+        # 반전 횟수: 반전 기회에서 확정된 행동이 BACK인 횟수. 지연 반전은 저장한 틱(committed)에 센다 (DECISIONS 23)
+        gs["rev_count"] += decided & obs.legal[b, :, BACK] & committed & (action == BACK)
         # 이번 틱의 보상 사건 (결정은 위에서 먼저 센다)
         for e in self.pending[b]:
             r = self.regime.rewards([e])
@@ -188,11 +194,7 @@ class Recorder:
                 gs["dec_since"][k] = 0
         self.pending[b] = []
 
-        brain = brain or {}
-        action = np.asarray(brain.get("action", np.full((len(views), F), -1)))[b]
         pi = np.asarray(brain.get("pi", np.zeros((len(views), F, 4))))[b]
-        no = np.zeros((len(views), F), dtype=bool)
-        committed = np.asarray(brain.get("committed", no), dtype=bool)[b]
         moved = np.asarray(brain.get("moved", no), dtype=bool)[b]
         brain_on = np.asarray(brain.get("brain_on", no), dtype=bool)[b]
         frame = dict(
@@ -255,8 +257,7 @@ class Recorder:
             self.flies_csv.row(base + [k, repr(float(gs["sumR"][k])), int(gs["reward_events"][k]),
                                        f"{gs['delay_sum'][k] / n:.6g}" if n else "",
                                        int(gs["catches_by"][k]), int(gs["eaten_by"][k]),
-                                       int(gs["rev_chances"][k]),
-                                       ""])  # TODO(M1): 반전 횟수는 z 전환(파워 쿠키)이 생긴 뒤 센다
+                                       int(gs["rev_chances"][k]), int(gs["rev_count"][k])])
         for c in (self.games_csv, self.lives_csv, self.flies_csv):
             c.flush()
         self.game_stats[b] = self._new_game_stats()

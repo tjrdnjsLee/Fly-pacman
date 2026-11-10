@@ -15,9 +15,9 @@ class Regime2(Regime):
             if not ev.active:  # 발생 시점 기준
                 continue
             if ev.kind is Kind.CATCH:
-                R[:] += 0.25  # 잡은 놈도 나머지도 +1/4 (팀 합 1)
+                R[:] += 1 / self.F  # 잡은 놈도 나머지도 +1/F = +1/4 (팀 합 1)
             elif ev.kind is Kind.EATEN:
-                R[:] -= self.q / 4  # 처벌도 나눈다
+                R[:] -= self.q / self.F  # 처벌도 나눈다 (q/F = q/4)
         return R
 
     def emission(self, obs_one_game) -> np.ndarray:

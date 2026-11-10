@@ -6,7 +6,9 @@ import pytest
 from helpers import Scripted, cell, make_cfg, place
 
 from flypac.core import directions as d
+from flypac.core.rng import game_rngs
 from flypac.core.runner import build_runner
+from flypac.ghosts.random_ghost import RandomGhost
 from flypac.recording.recorder import (FLIES_COLS, GAMES_COLS, LIVES_COLS, Recorder, make_run_dir)
 from flypac.replay.reader import read_replay
 from flypac.replay.schema import KIND_CODES
@@ -194,3 +196,60 @@ def test_environment_json_without_torch_fields_for_rule_based(tmp_path):
     env = json.loads((tmp_path / "run" / "environment.json").read_text(encoding="utf-8"))
     assert env["pacman_kind"] == "rule_based" and env["pacman_device"] is None and env["torch"] is None
     assert env["python"] and env["numpy"]
+
+
+class AlwaysBack(RandomGhost):
+    """결정 때마다 가능하면 반전(BACK)을 낸다."""
+
+    def propose(self, obs, alive, views=None):
+        out = super().propose(obs, alive, views)
+        for b in range(self.B):
+            for k in range(self.F):
+                if out[b, k] >= 0 and obs.legal[b, k, d.BACK]:
+                    out[b, k] = d.BACK
+        self.proposed = out
+        return out
+
+
+def test_reversal_count_counts_delayed_reversal_at_saved_tick(tmp_path):
+    # 속도가 모자란 초파리(0.25)에게 파워 시작 반전 기회가 열리면 방향을 저장만 하고 다음 이동에 적용한다 (DECISIONS 4.1)
+    cfg = make_cfg(n_games=1, replay={"keep_games": [1]}, engine={
+        "kind": "real", "watchdog_ticks": 8, "power_s": 0.21, "elroy_dots_left": [0, 0],
+        "pacman_speed": 1, "pacman_normal_speed_cap": 1, "pacman_dot_speed": 1,
+        "pacman_power_speed": 1, "pacman_power_dot_speed": 1,
+        "fly_speed": 0.25, "fly_normal_speed_cap": 1, "fly_frightened_speed": 0.25,
+        "house_personal_dots": [0, 100, 100, 100],
+    })
+    root = tmp_path / "run"
+    recorder = Recorder(root, cfg)
+    runner = build_runner(cfg, recorder)
+    runner.pacman = Scripted(d.EAST)
+    runner.ghosts = AlwaysBack(cfg, 1, game_rngs([0], "ghost"))
+    runner._reset_all()
+    game = runner.game.games[0]
+    place(game, pac=cell(1, 1), pac_dir=d.EAST, flies={0: cell(1, 4)}, fly_dirs={0: d.EAST},
+          released=True, active=True)
+    game.pac_acc, game.fly_acc[0] = 1 - game.v_pac, 0.0
+    game.dots[cell(1, 2)], game.energizers[cell(1, 2)] = False, True
+    try:
+        while not runner.finished[0]:
+            runner.tick()
+    finally:
+        recorder.close()
+    _, arrays = read_replay(recorder.replay_files[0])
+    saved = arrays["committed"][:, 0] & (arrays["action"][:, 0] == d.BACK)
+    stored_only = saved & ~arrays["moved"][:, 0]
+    assert stored_only.any(), "저장만 하고 이동하지 않은 확정이 있어야 한다 (지연 반전)"
+    flies = read_csv(root / "flies.csv")
+    count, chances = int(flies[0]["상태 전환 시 반전 횟수"]), int(flies[0]["상태 전환 시 반전 기회"])
+    assert count == int(saved.sum()) >= 1  # 저장한 틱에 센다. 적용 틱(committed 거짓)에는 다시 세지 않는다
+    assert count <= chances
+
+
+def test_reversal_count_never_exceeds_chances_and_is_nonzero_on_real_engine(tmp_path):
+    cfg = make_cfg(seeds=[0, 1, 2, 3], n_games=3, engine={"kind": "real"})
+    Recorder_ = Recorder(tmp_path / "run", cfg)
+    build_runner(cfg, Recorder_).run()
+    rows = read_csv(tmp_path / "run" / "flies.csv")
+    assert all(int(r["상태 전환 시 반전 횟수"]) <= int(r["상태 전환 시 반전 기회"]) for r in rows)
+    assert sum(int(r["상태 전환 시 반전 횟수"]) for r in rows) > 0
