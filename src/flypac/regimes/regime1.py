@@ -5,12 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from flypac.core.events import Event, Kind
-from flypac.regimes.base import REWARD_DEFAULTS, Regime, fly_index
+from flypac.regimes.base import Regime, fly_index
 
 
 class Regime1(Regime):
-    _reward_defaults = REWARD_DEFAULTS
-
     def rewards(self, events: list[Event]) -> np.ndarray:
         R = np.zeros(self.F)
         for ev in events:
