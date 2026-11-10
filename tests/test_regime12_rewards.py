@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from flypac.core.config import Config
+from flypac.core.config import Config, load_config
 from flypac.core.events import Event, Kind
+from flypac.recording.recorder import Recorder
 from flypac.regimes import make_regime
 
 
@@ -46,6 +47,22 @@ def test_same_tick_rewards_are_additive(condition):
     np.testing.assert_array_equal(regime.rewards([catch, catch]), 2 * catch_reward)
 
 
+def test_mixed_tick_rewards_match_sum_of_single_events(condition):
+    regime = make_regime(Config({"condition": condition}))
+    events = [
+        event(Kind.EATEN, 2),
+        event(Kind.CATCH, 0, active=False),
+        event(Kind.CATCH, 2),
+        event(Kind.EATEN, 3),
+        event(Kind.CATCH, 1),
+        event(Kind.EATEN, 0, active=False),
+    ]
+
+    recorded = sum((regime.rewards([ev]) for ev in events), start=np.zeros(regime.F))
+
+    np.testing.assert_array_equal(regime.rewards(events), recorded)
+
+
 def test_inactive_events_and_emission_are_zero(condition):
     regime = make_regime(Config({"condition": condition}))
     inactive = [event(Kind.CATCH, 2, active=False), event(Kind.EATEN, 1, active=False)]
@@ -73,3 +90,25 @@ def test_missing_reward_parameters_default_individually(condition, reward, p, q)
     regime = make_regime(Config({"condition": condition, "reward": reward}))
 
     assert (regime.p, regime.q) == (p, q)
+
+
+@pytest.mark.parametrize(
+    "reward_settings, expected",
+    [
+        ({}, {"p": 1 / 3, "q": 1.0}),
+        ({"reward": {"q": 0.6}}, {"p": 1 / 3, "q": 0.6}),
+        ({"reward": {"p": 0.4}}, {"p": 0.4, "q": 1.0}),
+    ],
+)
+def test_run_config_records_effective_rewards(tmp_path, condition, reward_settings, expected):
+    cfg = Config({"condition": condition, "seeds": [0], **reward_settings})
+    input_data = cfg.to_dict()
+    run_dir = tmp_path / "run"
+    recorder = Recorder(run_dir, cfg)
+    try:
+        saved = load_config(run_dir / "config.yaml")
+        assert saved.reward.to_dict() == expected
+        assert recorder.config_hash == saved.hash()
+        assert cfg.to_dict() == input_data
+    finally:
+        recorder.close()
