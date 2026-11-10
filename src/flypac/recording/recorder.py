@@ -81,7 +81,7 @@ class Recorder:
         self.condition = str(cfg.condition)
         self.regime = make_regime(cfg)
         saved_cfg = cfg.to_dict()
-        if self.condition in ("regime1", "regime2"):
+        if hasattr(self.regime, "p") and hasattr(self.regime, "q"):
             reward = saved_cfg.get("reward")
             if not isinstance(reward, dict):
                 reward = {}
