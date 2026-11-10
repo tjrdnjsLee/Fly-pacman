@@ -21,6 +21,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
       # 잠금 파일(uv.lock)과 pyproject.toml은 그대로 둔다 (실험 머신은 CUDA torch). CI에서만 같은 버전의 CPU 빌드를 설치한다.
-      - run: uv pip install "torch==2.15.0" --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+      # uv는 --extra-index-url을 --index-url보다 먼저 본다: PyTorch CPU 인덱스를 extra로, PyPI를 기본으로 둔다 (반대로 하면 PyPI의 CUDA 빌드가 설치된다)
+      - run: uv pip install "torch==2.15.0" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu
+      - run: uv run --no-sync python -c "import torch; print(torch.__version__, torch.version.cuda); assert torch.version.cuda is None, 'CUDA 빌드가 설치됐다'"
       # --no-sync: uv run이 환경을 잠금 파일대로 되돌려 CPU torch를 지우지 않게 한다
       - run: uv run --no-sync pytest
