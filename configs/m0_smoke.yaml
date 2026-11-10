@@ -23,7 +23,7 @@ engine: {kind: fake, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
 time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
 phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
-reward: {q: 1.0}                            # p: 체제 1·2는 기본값(DECISIONS 20절), 체제 3은 명시 필요
+reward: {q: 1.0}                            # p는 체제 1·2·3 공통 기본값 적용 (DECISIONS 20절)
 pacman: {kind: rule_based}
 rule_based: {danger_dist: 6, chase_dist: 8}   # TODO(미결 6)
 ghosts: {kind: random}
