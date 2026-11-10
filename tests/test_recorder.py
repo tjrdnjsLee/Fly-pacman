@@ -6,6 +6,7 @@ import pytest
 from helpers import Scripted, cell, make_cfg, place
 
 from flypac.core import directions as d
+from flypac.core.config import Config
 from flypac.core.rng import game_rngs
 from flypac.core.runner import build_runner
 from flypac.ghosts.random_ghost import RandomGhost
@@ -244,6 +245,8 @@ def test_reversal_count_counts_delayed_reversal_at_saved_tick(tmp_path):
     count, chances = int(flies[0]["상태 전환 시 반전 횟수"]), int(flies[0]["상태 전환 시 반전 기회"])
     assert count == int(saved.sum()) >= 1  # 저장한 틱에 센다. 적용 틱(committed 거짓)에는 다시 세지 않는다
     assert count <= chances
+    start_c, start_n = int(flies[0]["파워 시작 반전 기회"]), int(flies[0]["파워 시작 반전 횟수"])
+    assert start_c >= 1 and start_n == count  # 이 장면의 기회는 파워 시작이 연 것이다
 
 
 def test_reversal_count_never_exceeds_chances_and_is_nonzero_on_real_engine(tmp_path):
@@ -253,3 +256,26 @@ def test_reversal_count_never_exceeds_chances_and_is_nonzero_on_real_engine(tmp_
     rows = read_csv(tmp_path / "run" / "flies.csv")
     assert all(int(r["상태 전환 시 반전 횟수"]) <= int(r["상태 전환 시 반전 기회"]) for r in rows)
     assert sum(int(r["상태 전환 시 반전 횟수"]) for r in rows) > 0
+    # 원인별: 시작 + 종료 = 합계 (이 실행에서는 원인 없는 기회가 없다), 원인마다 횟수 ≤ 기회
+    for r in rows:
+        assert int(r["파워 시작 반전 기회"]) + int(r["파워 종료 반전 기회"]) == int(r["상태 전환 시 반전 기회"])
+        assert int(r["파워 시작 반전 횟수"]) + int(r["파워 종료 반전 횟수"]) == int(r["상태 전환 시 반전 횟수"])
+        assert int(r["파워 시작 반전 횟수"]) <= int(r["파워 시작 반전 기회"])
+        assert int(r["파워 종료 반전 횟수"]) <= int(r["파워 종료 반전 기회"])
+    assert sum(int(r["파워 시작 반전 기회"]) for r in rows) > 0 and sum(int(r["파워 종료 반전 기회"]) for r in rows) > 0
+    assert sum(int(r["파워 시작 반전 횟수"]) for r in rows) > 0 and sum(int(r["파워 종료 반전 횟수"]) for r in rows) > 0
+
+
+def test_b1_never_reverses_by_choice(tmp_path):
+    # B1 원작 유령의 반전은 강제라 선택이 아니다: 반전 기회도 횟수도 0이다 (DECISIONS 23)
+    from test_original_ghosts import original_cfg
+
+    cfg = original_cfg(**{})
+    cfg = Config({**cfg.to_dict(), "seeds": [0, 1], "n_games": 3, "ghosts": {"kind": "original"},
+                  "pacman": {"kind": "rule_based"}})
+    build_runner(cfg, Recorder(tmp_path / "run", cfg)).run()
+    rows = read_csv(tmp_path / "run" / "flies.csv")
+    assert len(rows) == 24
+    cols = ["상태 전환 시 반전 기회", "상태 전환 시 반전 횟수", "파워 시작 반전 기회", "파워 시작 반전 횟수",
+            "파워 종료 반전 기회", "파워 종료 반전 횟수"]
+    assert all(int(r[c]) == 0 for r in rows for c in cols)
