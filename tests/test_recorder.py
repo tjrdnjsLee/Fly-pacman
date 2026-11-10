@@ -111,7 +111,7 @@ def test_last_life_game_row_records_pre_reset_state(tmp_path):
     assert int(row["남은 점"]) > 200  # 초기화 전 상태 (초기화 뒤에도 같지만 목숨 0 판이 한 줄 기록됨)
     flies = read_csv(tmp_path / "r" / "flies.csv")
     # 체제1: 잡은 0번 +1, 나머지 -p. flies.csv는 초파리 번호 순
-    assert [f["합계 R"] for f in flies[:4]] == ["1", "-0.25", "-0.25", "-0.25"]
+    assert [f["합계 R"] for f in flies[:4]] == ["1.0", "-0.25", "-0.25", "-0.25"]
     assert [f["포획"] for f in flies[:4]] == ["1", "0", "0", "0"]
     assert flies[0]["보상 사건 수"] == "1" and flies[0]["결정에서 보상까지 지연(결정 수)"] == "0"
 
