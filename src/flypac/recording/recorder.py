@@ -26,7 +26,7 @@ CSV_ENCODING = "utf-8-sig"
 F = 4
 
 GAMES_COLS = ["조건", "시드", "판", "점수", "승자", "틱 수", "누적 틱", "누적 결정 수", "남은 점",
-              "포획 수", "활성 후 포획 수", "먹힘 수"]
+              "포획 수", "활성 후 포획 수", "먹힘 수", "활성 후 먹힘 수"]
 LIVES_COLS = ["조건", "시드", "판", "목숨 번호", "종료 원인", "포획까지 틱", "잡은 초파리", "출발 전 포획 여부"] + [
     f"먹힘 수_초파리{k}" for k in range(F)]
 FLIES_COLS = ["조건", "시드", "판", "초파리", "합계 R", "보상 사건 수", "결정에서 보상까지 지연(결정 수)", "포획",
@@ -119,7 +119,7 @@ class Recorder:
     # ---- 통계 묶음 ----
     @staticmethod
     def _new_game_stats() -> dict:
-        return {"catch": 0, "catch_active": 0, "eaten": 0,
+        return {"catch": 0, "catch_active": 0, "eaten": 0, "eaten_active": 0,
                 "sumR": np.zeros(F), "reward_events": np.zeros(F, dtype=np.int64),
                 "delay_sum": np.zeros(F), "delay_n": np.zeros(F, dtype=np.int64),
                 "dec_since": np.zeros(F, dtype=np.int64),
@@ -152,6 +152,7 @@ class Recorder:
                 ls["catch_fly"], ls["catch_inactive"], ls["catch_tick"] = e.fly, not e.active, int(self.life_ticks[b])
             elif e.kind is Kind.EATEN:
                 gs["eaten"] += 1
+                gs["eaten_active"] += int(e.active)
                 gs["eaten_by"][e.fly] += 1
                 ls["eaten_by"][e.fly] += 1
         self.pending[b] = list(events)
@@ -244,10 +245,10 @@ class Recorder:
         left = int(view.dots.sum() + view.energizers.sum())
         base = [self.condition, self.seeds[b], int(self.game_no[b])]
         self.games_csv.row(base + [int(view.score), str(winner), int(view.tick), int(self.ticks_total[b]),
-                                   int(self.decisions_total[b]), left, gs["catch"], gs["catch_active"], gs["eaten"]])
+                                   int(self.decisions_total[b]), left, gs["catch"], gs["catch_active"], gs["eaten"], gs["eaten_active"]])
         for k in range(F):
             n = gs["delay_n"][k]
-            self.flies_csv.row(base + [k, f"{gs['sumR'][k]:.6g}", int(gs["reward_events"][k]),
+            self.flies_csv.row(base + [k, repr(float(gs["sumR"][k])), int(gs["reward_events"][k]),
                                        f"{gs['delay_sum'][k] / n:.6g}" if n else "",
                                        int(gs["catches_by"][k]), int(gs["eaten_by"][k]),
                                        int(gs["rev_chances"][k]),
