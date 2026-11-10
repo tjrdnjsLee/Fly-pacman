@@ -26,19 +26,14 @@ def fly_index(ev: Event, n_flies: int = N_FLIES) -> int:
 
 
 class Regime(ABC):
-    _reward_defaults = None
+    _reward_defaults = REWARD_DEFAULTS
 
     def __init__(self, cfg):
         self.cfg = cfg
         self.F = N_FLIES
-        if self._reward_defaults is None:
-            p, q = cfg.reward.p, cfg.reward.q
-        else:
-            reward = getattr(cfg, "reward", None)
-            p = getattr(reward, "p", self._reward_defaults.p)
-            q = getattr(reward, "q", self._reward_defaults.q)
-        self.p = float(p)
-        self.q = float(q)
+        reward = getattr(cfg, "reward", None)
+        self.p = float(getattr(reward, "p", self._reward_defaults.p))
+        self.q = float(getattr(reward, "q", self._reward_defaults.q))
 
     @abstractmethod
     def rewards(self, events: list[Event]) -> np.ndarray:
