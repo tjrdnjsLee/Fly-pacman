@@ -11,6 +11,21 @@ import platform
 import numpy as np
 
 
+def _brain_info(cfg) -> dict:
+    """초파리 뇌를 쓰는 실행이면 실험 회로 파일과 뇌 설정을 기록한다 (DECISIONS 25.1). 아니면 모두 null."""
+    info = {"circuit_file": None, "circuit_sha256": None, "brain_config": None, "brain_config_hash": None}
+    ghosts = cfg.get("ghosts", None)
+    if ghosts is None or str(ghosts.kind) != "flybrain":
+        return info
+    from flypac.brain.flybrain import file_sha256, load_brain_config
+
+    brain_path = str(ghosts.config)
+    brain = load_brain_config(brain_path)
+    info.update(circuit_file=str(brain.circuit.file), circuit_sha256=file_sha256(brain.circuit.file),
+                brain_config=brain_path, brain_config_hash=brain.hash())
+    return info
+
+
 def environment_info(cfg) -> dict:
     pacman = cfg.get("pacman", None)  # 최소 설정(시험)에는 pacman 절이 없을 수 있다
     kind = str(pacman.kind) if pacman is not None else None
@@ -20,6 +35,7 @@ def environment_info(cfg) -> dict:
         "pacman_device_setting": None, "pacman_device": None,
         "torch": None, "torch_cuda": None, "gpu": None,
     }
+    info.update(_brain_info(cfg))
     if kind != "ppo":
         return info
     import torch
