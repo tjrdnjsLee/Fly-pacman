@@ -1,0 +1,5 @@
+# 동시 도착(순서 효과) 빈도 측정의 판정 문턱 (DECISIONS 25.3 · 25.4). 이 파일은 관리자 소유다.
+# 실행 설정은 configs/eps_select_v1.yaml + select_eps.run_config (ε은 configs/integ_v1.yaml의 pacman.eps, DECISIONS 24).
+ties:
+  conditions: [b0, b1]
+  order_effect_max_fraction: 0.02   # DECISIONS 25.4

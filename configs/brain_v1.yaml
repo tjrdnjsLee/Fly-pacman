@@ -2,8 +2,9 @@
 # 실행 설정에서 ghosts: {kind: flybrain, config: configs/brain_v1.yaml}로 부른다.
 
 circuit:
-  raw: data/circuit/raw/mb_raw_v1.npz        # 원본 회로 (회로 해시는 이 파일의 sha256)
-  assign: configs/circuit_assign_v1.yaml     # 분기 · 페로몬 사구체 · MBON 묶음 탐색 설정
+  file: data/circuit/mb_v1.npz     # 실험 회로. 뇌는 이 파일을 읽는다 (DECISIONS 25.1). meta는 같은 이름의 .meta.json
+  raw: data/circuit/raw/mb_raw_v1.npz        # 원본 회로 (meta 대조용)
+  assign: configs/circuit_assign_v1.yaml     # 분기 · 페로몬 사구체 · MBON 묶음 탐색 설정 (meta 대조용)
   seed: 0          # 확정 (작은 과제 A~D 통과, DECISIONS 19절·19.6). 바꾸면 18절 규칙으로 하이퍼파라미터를 다시 잰다
 
 kc:

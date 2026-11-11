@@ -13,12 +13,14 @@ decide가 참이면 π_a ∝ exp(β x_a) (합법 행동만), a* ~ π (게임별 
 
 학습 상태는 변화분 dw = w - w0 하나뿐이다 (DECISIONS 12.3). 갱신은 dw ← max(dw + Δw, -w0) (w ≥ 0과 같다).
 w가 필요하면(시각화 등) w0 + dw로 만든다. 저장 · 재개도 dw만 쓴다. w0은 불변 참조 배열 하나를 모든 게임 ·
-초파리가 읽기 전용으로 공유한다. B0 = 같은 코드, w = w0에서 시작, η = 0 (지시서 2.5).
+초파리가 읽기 전용으로 공유한다. 회로는 실험 회로 파일 `circuit.file`(mb_v1.npz)을 직접 읽고 meta를 대조한다
+(DECISIONS 25.1; 저장 형식 3). B0 = 같은 코드, w = w0에서 시작, η = 0 (지시서 2.5).
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import warnings
 from dataclasses import dataclass
@@ -36,7 +38,7 @@ REPO = Path(__file__).resolve().parents[3]
 RNG_PURPOSES = ("kc_tiebreak", "brain_action")
 LEARNING_CONDITIONS = ("regime1", "regime2", "regime3")
 B0 = "b0"
-STATE_FORMAT = 2  # 2: w 대신 dw만 저장, 설정 변경 허용 기록 (PR #7 검토)
+STATE_FORMAT = 3  # 3: circuit_hash = 실험 회로 파일(mb_v1.npz)의 sha256 (DECISIONS 25.1). 2: w 대신 dw만 저장, 설정 변경 허용 기록 (PR #7 검토)
 
 
 def repo_path(path) -> Path:
@@ -109,8 +111,45 @@ def build_circuit(raw_path, assign_cfg: Config | dict, seed: int) -> Circuit:
 
 
 def circuit_from_config(cfg: Config) -> Circuit:
+    """원본 + 배정 설정 + 시드로 다시 조립한다. 닫힌 시험 · 진단 · 회로 파일 생성용 (뇌는 쓰지 않는다)."""
     c = cfg.circuit
     return build_circuit(c.raw, load_config(repo_path(c.assign)), int(c.seed))
+
+
+def experiment_circuit_meta_path(npz_path) -> Path:
+    """`mb_v1.npz` -> `mb_v1.meta.json`."""
+    p = repo_path(npz_path)
+    return p.with_name(p.stem + ".meta.json")
+
+
+def check_experiment_circuit_meta(cfg: Config, meta: dict) -> None:
+    """회로 파일의 meta를 뇌 설정 · 실제 파일과 대조한다. 하나라도 다르면 ValueError (DECISIONS 25.1)."""
+    c = cfg.circuit
+
+    def need(item: str, got, want) -> None:
+        if got != want:
+            raise ValueError(f"실험 회로 meta 불일치 [{item}]: meta {got!r} != 현재 {want!r}")
+
+    need("npz_sha256", meta.get("npz_sha256"), file_sha256(c.file))
+    need("raw_sha256", meta.get("raw_sha256"), file_sha256(c.raw))
+    need("assign_config_hash", meta.get("assign_config_hash"), load_config(repo_path(c.assign)).hash())
+    need("assign_seed", meta.get("assign_seed"), int(c.seed))
+    kc = meta.get("kc", {})
+    need("kc.rho", kc.get("rho"), float(cfg.kc.rho))
+    need("kc.theta", kc.get("theta"), float(cfg.kc.theta))
+    need("hyperparameter_hash", meta.get("hyperparameter_hash"), Config(cfg.to_dict()["learn"]).hash())
+
+
+def load_experiment_circuit(cfg: Config) -> Circuit:
+    """`circuit.file`(mb_v1.npz)을 읽어 회로를 만든다 (DECISIONS 25.1). 읽기 전에 meta를 대조한다.
+
+    source_hash = npz 파일의 sha256, seed = meta의 assign_seed. 배열은 파일 그대로(dtype 포함) 읽기 전용.
+    """
+    meta = json.loads(experiment_circuit_meta_path(cfg.circuit.file).read_text(encoding="utf-8"))
+    check_experiment_circuit_meta(cfg, meta)
+    with np.load(repo_path(cfg.circuit.file)) as z:
+        arr = {k: _readonly(z[k]) for k in ("J", "alpha", "w0", "M", "mbon_bundle", "pn_channel")}
+    return Circuit(**arr, source_hash=file_sha256(cfg.circuit.file), seed=int(meta["assign_seed"]))
 
 
 # ---------------------------------------------------------------- 순수 계산 (표현력 시험에서도 쓴다)
@@ -179,7 +218,7 @@ class FlyBrain(GhostController):
         self.cfg, self.B, self.F = cfg, int(B), 4
         self.condition = condition
         self.config_hash = cfg.hash()
-        self.circuit = circuit if circuit is not None else circuit_from_config(cfg)
+        self.circuit = circuit if circuit is not None else load_experiment_circuit(cfg)
         c = self.circuit
         self.n_kc, self.n_mbon = c.n_kc, c.n_mbon
         self.rho, self.theta = float(cfg.kc.rho), float(cfg.kc.theta)
@@ -373,7 +412,7 @@ class FlyBrain(GhostController):
 
     # ---- 저장 · 재개 (판 경계에서만, TRD 13.6) ----
     def state_dict(self) -> dict:
-        """학습 상태는 dw뿐이다 (w는 저장하지 않는다. w0은 회로 파일에서 다시 만든다)."""
+        """학습 상태는 dw뿐이다 (w는 저장하지 않는다. w0은 회로 파일에서 다시 읽는다). circuit_hash는 mb_v1.npz의 sha256 (형식 3)."""
         return {
             "format": STATE_FORMAT,
             "dw": self.dw.copy(),
