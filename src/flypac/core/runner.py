@@ -73,6 +73,8 @@ class Runner(TickCore):
             close()
         return {"ticks": self.total_ticks, "games": list(self.results)}
 
+LEARNING_CONDITIONS = ("regime1", "regime2", "regime3")  # 가중치를 저장하는 조건 (B0 · B1은 학습이 없다)
+
 
 def build_runner(cfg, recorder=None) -> Runner:
     """설정에서 부품을 만들어 Runner를 돌려준다. 기록기를 주지 않으면 NullRecorder."""
@@ -109,7 +111,8 @@ def build_runner(cfg, recorder=None) -> Runner:
         ghosts = RandomGhost(cfg, B, game_rngs(seeds, "ghost"))
     elif cfg.ghosts.kind == "flybrain":
         from flypac.brain.flybrain import FlyBrain, load_brain_config
-        ghosts = FlyBrain(load_brain_config(cfg.ghosts.config), B, seeds, condition=str(condition))
+        ghosts = FlyBrain(load_brain_config(cfg.ghosts.config), B, seeds, condition=str(condition),
+                          evaluate=bool(cfg.get("evaluate", False)))
     elif cfg.ghosts.kind == "original":
         from flypac.ghosts.original import OriginalGhosts
         ghosts = OriginalGhosts(cfg, B, game_rngs(seeds, "ghost"))
@@ -117,4 +120,11 @@ def build_runner(cfg, recorder=None) -> Runner:
     else:
         raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")
     regime = make_regime(cfg)
-    return Runner(cfg, amap, game, engine_rngs, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())
+    runner = Runner(cfg, amap, game, engine_rngs, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())
+    if "weights" in cfg and cfg.ghosts.kind == "flybrain" and str(condition) in LEARNING_CONDITIONS:
+        # 가중치 저장 (DECISIONS 26.1): 학습 조건에서만. B0 · B1은 저장할 학습이 없다
+        from flypac.recording.weights import WeightWriter
+        if getattr(runner.recorder, "run_dir", None) is None:
+            raise ValueError("weights 설정에는 결과 폴더(기록기)가 필요하다")
+        runner.weight_writer = WeightWriter.from_config(cfg, runner.recorder)
+    return runner
