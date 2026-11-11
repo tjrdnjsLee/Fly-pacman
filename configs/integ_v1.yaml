@@ -27,7 +27,7 @@ engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
 time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
 phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
-pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22)
+pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
 ghosts: {kind: flybrain, config: configs/brain_v1.yaml}
 replay: {keep_games: [1, 2], brain: true}   # TODO(미결 17): 남길 판 고르기는 고정 번호만
 run:    {max_loop_ticks: 2000000}
