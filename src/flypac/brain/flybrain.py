@@ -38,6 +38,7 @@ REPO = Path(__file__).resolve().parents[3]
 RNG_PURPOSES = ("kc_tiebreak", "brain_action")
 LEARNING_CONDITIONS = ("regime1", "regime2", "regime3")
 B0 = "b0"
+WEIGHTS_FORMAT = 1  # 칸 하나의 가중치 파일 형식 (DECISIONS 26.1, recording/weights.py)
 STATE_FORMAT = 3  # 3: circuit_hash = 실험 회로 파일(mb_v1.npz)의 sha256 (DECISIONS 25.1). 2: w 대신 dw만 저장, 설정 변경 허용 기록 (PR #7 검토)
 
 
@@ -202,8 +203,10 @@ class FlyBrain(GhostController):
     uses_views = False
 
     def __init__(self, cfg: Config, B: int, seeds, *, condition: str = "regime1",
-                 circuit: Circuit | None = None):
+                 circuit: Circuit | None = None, evaluate: bool = False):
         """cfg: 뇌 설정 (configs/brain_v1.yaml). seeds: 칸별 실행 시드 (B,). condition: 실행 조건.
+        evaluate: 최종 평가 모드. 조건과 무관하게 η = 0 (학습하지 않는다). 학습 조건의 dw는 load_slot_state로 받는다
+        (DECISIONS 26.3).
 
         조건 b0은 w = w0에서 시작하고 η = 0이다 (지시서 2.5). b0p는 없앴다 (오류). b1은 뇌가 아니다.
         """
@@ -227,7 +230,8 @@ class FlyBrain(GhostController):
             raise ValueError(f"k = ceil(ρ N_KC) = {self.k}가 범위 밖이다")
         L = cfg.learn
         self.kappa, self.g, self.beta = float(L.kappa), float(L.g), float(L.beta)
-        self.eta = 0.0 if condition == B0 else float(L.eta)
+        self.evaluate = bool(evaluate)
+        self.eta = 0.0 if (condition == B0 or self.evaluate) else float(L.eta)
         self.alpha_rbar, self.gamma = float(L.alpha_rbar), float(L.gamma)
 
         n_act = A.N_ACTIONS
@@ -425,6 +429,40 @@ class FlyBrain(GhostController):
             "condition": self.condition,
             "config_changes": [dict(c) for c in self.config_changes],
         }
+
+    # ---- 칸 하나의 가중치 (DECISIONS 26.1 · 26.3). state_dict · load_state_dict는 그대로 ----
+    def slot_state(self, b: int) -> dict:
+        """칸 b의 학습 상태: 연결 마스크 안의 dw (F, N_conn), R̄ (F,), 형식 · 조건 · 회로 · 뇌 설정 해시."""
+        return {
+            "format": WEIGHTS_FORMAT, "condition": self.condition,
+            "circuit_sha256": self.circuit.source_hash, "brain_config_hash": self.config_hash,
+            "dw_masked": self.dw[b][:, self.circuit.M].copy(), "rbar": self.rbar[b].copy(),
+        }
+
+    def load_slot_state(self, b: int, state: dict) -> None:
+        """칸 b에 slot_state가 낸 상태를 넣는다. 형식 · 조건 · 회로 해시 · 뇌 설정 해시가 다르면 ValueError.
+        x, h, e, R_n과 보관한 제안은 그 칸만 비운다. 다른 칸은 건드리지 않는다."""
+        for key, want in (("format", WEIGHTS_FORMAT), ("condition", self.condition),
+                          ("circuit_sha256", self.circuit.source_hash),
+                          ("brain_config_hash", self.config_hash)):
+            if state.get(key) != want:
+                raise ValueError(f"가중치 파일 불일치 [{key}]: 파일 {state.get(key)!r} != 현재 {want!r}")
+        M = self.circuit.M
+        masked = np.asarray(state["dw_masked"], dtype=np.float64)
+        rbar = np.asarray(state["rbar"], dtype=np.float64)
+        if masked.shape != (self.F, int(M.sum())) or rbar.shape != (self.F,):
+            raise ValueError(f"가중치 모양 불일치: dw_masked {masked.shape}, rbar {rbar.shape}")
+        dw = np.zeros((self.F, self.n_kc, self.n_mbon))
+        dw[:, M] = masked
+        if (dw < self._neg_w0).any():
+            raise ValueError("dw가 비음수(dw ≥ -w0) 조건을 어긴다")
+        if self.condition == B0 and (dw != 0).any():
+            raise ValueError("B0는 w = w0에서 시작한다: 학습된 w를 불러온 정책은 B0가 아니다 (DECISIONS 12.4)")
+        self.dw[b] = dw
+        self.rbar[b] = rbar
+        only = np.zeros(self.B, dtype=bool)
+        only[b] = True
+        self.reset_life(only)
 
     def load_state_dict(self, state: dict, *, allow_config_change: bool = False) -> None:
         """판 경계 재개. x, h, e, R_n과 보관한 제안은 비운다.

@@ -76,6 +76,7 @@ class TickCore:
         self.c0, self.s_odor = float(c0), float(s_odor)
         self.reset_odor_on_life_loss = bool(reset_odor_on_life_loss)
         self.keep_games = set(keep_games)
+        self.weight_writer = None  # 가중치 저장기 (recording/weights.py). 없으면 저장하지 않는다 (DECISIONS 26.1)
         self.game_no = np.ones(self.B, dtype=np.int64)  # 칸별 현재 판 번호 (1부터)
         # 칸별 현재 판의 틱 번호 (0부터). 틱 번호의 주인은 여기 하나다: 동결된 틱을 포함해 매 틱 올리고
         # 새 판에서 0으로 돌린다. 사건의 틱 번호는 이 값을 쓴다 = 재생 프레임 번호 (DECISIONS 8절)
@@ -245,6 +246,8 @@ class TickCore:
             winner = next((e.winner for e in events[b] if e.kind is Kind.GAME_OVER), None)
             if winner is not None:
                 over[b] = True
+                if self.weight_writer is not None:  # flush_learning 뒤, reset_life 전 (DECISIONS 26.1)
+                    self.weight_writer.on_game_end(int(b), int(self.game_no[b]), self.ghosts)
                 if self.recorder is not None:
                     self.recorder.on_game_end(int(b), final[b], events[b])
                     self.recorder.replay_end(int(b), int(self.game_no[b]) in self.keep_games)

@@ -108,7 +108,8 @@ class Recorder:
         self.replay_max_bytes = int(rep.get("max_bytes", 0)) if rep else 0  # TODO(미결 17): 저장 용량 상한
         self.replay_bytes = 0
         self.replay_with_phero = self.condition == "regime3"
-        self.config_hash = Config(saved_cfg).hash()
+        # 가중치 저장 설정(weights)은 출력 방식일 뿐이라 해시에서 뺀다: 켜고 꺼도 재생 로그가 같다 (DECISIONS 26.1)
+        self.config_hash = Config({k: v for k, v in saved_cfg.items() if k != "weights"}).hash()
         self.replay_files: list[Path] = []
         # 칸(게임)별 상태
         self.game_no = np.ones(B, dtype=np.int64)
