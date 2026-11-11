@@ -1,0 +1,39 @@
+# ε 선정 측정 (M3 준비 ④): 진짜 엔진 + 학습한 팩맨(PPO) + B0(초파리 뇌) / B1(원작 유령). 규칙은 DECISIONS 24절.
+# 실행 (후보 3개 × 조건 2개 = 실행 6개를 한 프로세스에서 순서대로 돈다):
+#   OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+#     uv run --extra pacman python scripts/select_eps.py run configs/eps_select_v1.yaml
+# `condition`, `ghosts`, `pacman.eps`, `experiment`는 스크립트가 실행마다 채운다 (여기 적힌 값은 자리표시).
+# engine · time · odor · phero · run 블록은 configs/integ_v1.yaml에서 값을 바꾸지 않고 복사했다.
+# 이 파일은 관리자 소유다.
+experiment: eps_select_v1
+seeds: [7000, 7001, 7002, 7003, 7004, 7005, 7006, 7007, 7008, 7009]
+n_games: 100
+
+engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         b1: {force_reversal: original, scatter_chase_s: [7, 20, 7, 20, 5, 20, 5],
+              scatter_targets: [[-3, 25], [-3, 2], [31, 27], [31, 0]],
+              pinky_ahead: 4, inky_ahead: 2, clyde_chase_distance: 8,
+              no_up_cells: [[11, 12], [11, 15], [23, 12], [23, 15]]},
+         release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,
+         watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71,
+         house_personal_dots: [0, 0, 30, 60], house_global_dots: [7, 17, 32],
+         house_no_dot_s: 4, pacman_power_speed: 0.90, pacman_power_dot_speed: 0.79,
+         fly_frightened_speed: 0.50, score_ghosts: [200, 400, 800, 1600],
+         fruit_s: 9.5, fruit_dots_eaten: [70, 170], score_fruit: 100,
+         elroy_dots_left: [20, 10], elroy_speeds: [0.80, 0.85],
+         fly_tunnel_speed: 0.40, pacman_normal_speed_cap: 0.80,
+         fly_normal_speed_cap: 0.75}  # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
+time:   {v_max_tiles_per_s: 9.47}
+odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
+phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
+pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, device: cuda, eps: 0.0}  # 장치는 명시한다 (DECISIONS 22)
+replay: {keep_games: [], brain: false}
+run:    {max_loop_ticks: 2000000}
+eps_select:
+  candidates: [0.0, 0.1, 0.2]
+  select_condition: b0
+  record_conditions: [b1]
+  ghosts: {b0: {kind: flybrain, config: configs/brain_v1.yaml}, b1: {kind: original}}
+  win_rate_band: [0.10, 0.50]
+  min_active_catches_per_game: 1.0
+  max_censored_fraction: 0.05
