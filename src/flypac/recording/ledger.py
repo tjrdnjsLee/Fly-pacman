@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+from flypac.regimes.base import REWARD_DEFAULTS
+
 TOL = 1e-12
 
 
@@ -26,7 +28,7 @@ def check_run(run_dir) -> tuple[int, list[str]]:
     run_dir = Path(run_dir)
     cfg = yaml.safe_load((run_dir / "config.yaml").read_text(encoding="utf-8"))
     reward = cfg.get("reward") or {}
-    p, q = float(reward.get("p", 1 / 3)), float(reward.get("q", 1.0))
+    p, q = float(reward.get("p", REWARD_DEFAULTS.p)), float(reward.get("q", REWARD_DEFAULTS.q))  # 출처는 reward_defaults.yaml 하나 (TRD 5.6)
     sum_r: dict[tuple, float] = defaultdict(float)
     for row in _read(run_dir / "flies.csv"):
         sum_r[(row["조건"], row["시드"], row["판"])] += float(row["합계 R"])

@@ -33,7 +33,9 @@ def test_full_game_runs_to_the_end():
     assert {g["winner"] for g in out["games"]} <= {"FLIES", "PACMAN", "CENSORED"}
 
 
-def test_infinite_loop_guard():
+def test_infinite_loop_guard(monkeypatch):
+    # 한도 검사(28.2)는 따로 시험한다. 여기서는 감시 장치가 고장 났을 때 걸리는 한도 자체를 본다
+    monkeypatch.setattr("flypac.core.runner.check_loop_limit", lambda cfg: None)
     r = build_runner(make_cfg(run={"max_loop_ticks": 5}))
     with pytest.raises(RuntimeError):
         r.run()

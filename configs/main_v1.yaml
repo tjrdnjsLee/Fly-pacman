@@ -3,9 +3,10 @@
 #   uv run --extra pacman python scripts/run_parallel.py configs/main_v1.yaml \
 #     --conditions regime1,regime2,regime3,b0,b1 --split 1
 # 학습 가중치는 100판마다와 마지막 판에 저장한다 (DECISIONS 26.1). 학습 뒤 최종 평가는 26.4 (configs/final_eval_v1.yaml).
-# engine · time · odor · phero · pacman · run 블록은 configs/integ_v1.yaml에서 값을 바꾸지 않고 복사했다.
+# engine · time · odor · phero · pacman 블록은 configs/integ_v1.yaml에서 값을 바꾸지 않고 복사했다 (pacman에는 checkpoint_sha256만 더했다, 28.3).
+# run.max_loop_ticks는 판 수에 맞췄다 (28.2).
 # `condition`, `ghosts`(b1이면 original)는 run_parallel.py가 조건마다 채운다. 아래 ghosts는 b1이 아닌 조건의 뇌.
-# 관련: DECISIONS 24 (ε), 26 (가중치 저장 · 최종 평가), 27 (규모). 이 파일은 관리자 소유다.
+# 관련: DECISIONS 24 (ε), 26 (가중치 저장 · 최종 평가), 27 (규모), 28 (점검 처리: 한도 · 체크포인트 해시 · 재생 일정). 이 파일은 관리자 소유다.
 experiment: main_v1
 seeds: [8000, 8001, 8002, 8003, 8004, 8005, 8006, 8007, 8008, 8009]
 n_games: 3000
@@ -27,8 +28,9 @@ engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
 time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
 phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
-pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
+pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, checkpoint_sha256: 4670fad239ee6324464b231cbe944afe8993167fbe20e1909fc23648b61e07f8, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
 ghosts: {kind: flybrain, config: configs/brain_v1.yaml}
-replay: {keep_games: [1, 3000], brain: true}
-run:    {max_loop_ticks: 2000000}
+replay: {keep_games: [1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500, 2600, 2700, 2800, 2900, 3000], brain: true}   # 판 1과 100의 배수 31개 (DECISIONS 28.5, 추정 용량 28.8)
+run:    {max_loop_ticks: 60000000}   # ≥ 판 수 × watchdog_ticks = 3000 × 20000 (DECISIONS 28.2)
 weights: {every_games: 100}          # 26.1
+parallel: {split: 1}                 # 비트 단위 재현은 배치 A(--split 1)만 보장 (27.5, DECISIONS 28.6). run_parallel.py가 --split과 대조한다

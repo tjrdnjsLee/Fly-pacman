@@ -12,11 +12,13 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import statistics
 import sys
 from itertools import combinations
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -27,6 +29,8 @@ from flypac.core.config import Config, load_config  # noqa: E402
 from flypac.recording.weights import parse_weight_filename  # noqa: E402
 
 LEARNING = ("regime1", "regime2", "regime3")
+SHARED_BLOCKS = ("engine", "time", "odor", "phero", "pacman")  # 학습 실행과 같아야 하는 블록 (DECISIONS 28.4)
+THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 CSV_ENCODING = "utf-8-sig"
 
 
@@ -66,6 +70,56 @@ def collect_weights(train_dirs: list[Path], conditions: list[str], train_seeds: 
     return out
 
 
+# ---------------------------------------------------------------- 시작 전 확인 (DECISIONS 28.4)
+
+def check_threads(env=None) -> None:
+    """수치 라이브러리 스레드가 모두 "1"이 아니면 EvalSetupError (붙여야 할 명령을 메시지에 담는다)."""
+    env = os.environ if env is None else env
+    bad = [v for v in THREAD_VARS if env.get(v) != "1"]
+    if bad:
+        prefix = " ".join(f"{v}=1" for v in THREAD_VARS)
+        raise EvalSetupError(f"스레드 환경변수가 1이 아니다: {', '.join(bad)}. 다음처럼 붙여 다시 실행한다: "
+                             f"{prefix} uv run --extra pacman python scripts/final_eval.py run ...")
+
+
+def recorder_config_hash(cfg: dict) -> str:
+    """기록기와 같은 방식의 실행 설정 해시: weights 블록을 뺀 사전의 Config 해시 (Recorder.config_hash)."""
+    return Config({k: v for k, v in cfg.items() if k != "weights"}).hash()
+
+
+def read_weight_meta(path: Path) -> dict:
+    """가중치 파일에서 시드와 실행 설정 해시만 읽는다 (큰 배열은 읽지 않는다)."""
+    with np.load(Path(path), allow_pickle=False) as z:
+        return {"seed": int(z["seed"]), "run_config_hash": str(z["run_config_hash"])}
+
+
+def check_train_dirs(base: dict, train_dirs: list[Path]) -> None:
+    """학습 폴더마다: 판 수, 공통 블록, 가중치 파일의 시드 · 실행 설정 해시를 평가 설정과 대조한다. 다르면 EvalSetupError."""
+    expected_n = int(base["final_eval"]["train_n_games"])
+    for d in map(Path, train_dirs):
+        cfg = yaml.safe_load((d / "config.yaml").read_text(encoding="utf-8"))
+        if int(cfg["n_games"]) != expected_n:
+            raise EvalSetupError(f"{d}: 학습 판 수가 {cfg['n_games']}이다 (평가 설정의 train_n_games = {expected_n})")
+        for k in SHARED_BLOCKS:
+            if cfg.get(k) != base.get(k):
+                raise EvalSetupError(f"{d}: 설정의 {k} 블록이 평가 설정과 다르다")
+        want = recorder_config_hash(cfg)
+        hashes = set()
+        for p in sorted((d / "weights").glob("*.npz")):
+            parsed = parse_weight_filename(p.name)
+            if not parsed:
+                continue
+            meta = read_weight_meta(p)
+            if meta["seed"] != parsed[0]:
+                raise EvalSetupError(f"{p}: 파일 안의 시드 {meta['seed']}가 파일 이름의 시드 {parsed[0]}와 다르다")
+            hashes.add(meta["run_config_hash"])
+        if len(hashes) > 1:
+            raise EvalSetupError(f"{d}: 가중치 파일들의 run_config_hash가 하나가 아니다 ({sorted(hashes)})")
+        if hashes and hashes != {want}:
+            raise EvalSetupError(f"{d}: 파일의 run_config_hash {sorted(hashes)[0]}가 config.yaml로 다시 계산한 {want}와 다르다 "
+                                 "(계산이 재현되지 않는다)")
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -73,16 +127,19 @@ def _sha256(path: Path) -> str:
 # ---------------------------------------------------------------- 계산 (순수)
 
 def per_seed_metrics(rows: list[dict], seeds: list[int]) -> dict:
-    """games.csv 행들에서 시드(평가 칸)별 팩맨 평균 점수 Y_s와 초파리 승률 W_s. seeds 순서를 따른다."""
-    score, W, games = [], [], []
+    """games.csv 행들에서 시드(평가 칸)별 팩맨 평균 점수 Y_s와 초파리 승률 W_s. seeds 순서를 따른다.
+    중단(CENSORED) 판은 점수와 W 모두에서 뺀다 (DECISIONS 28.4). 시드별 중단 수는 `censored`에 낸다."""
+    score, W, games, censored = [], [], [], []
     for s in seeds:
         mine = [r for r in rows if int(r["시드"]) == int(s)]
-        fly = sum(r["승자"] == "FLIES" for r in mine)
-        pac = sum(r["승자"] == "PACMAN" for r in mine)
+        done = [r for r in mine if r["승자"] != "CENSORED"]
+        fly = sum(r["승자"] == "FLIES" for r in done)
+        pac = sum(r["승자"] == "PACMAN" for r in done)
         games.append(len(mine))
-        score.append(statistics.fmean(int(r["점수"]) for r in mine) if mine else None)
+        censored.append(len(mine) - len(done))
+        score.append(statistics.fmean(int(r["점수"]) for r in done) if done else None)
         W.append(fly / (fly + pac) if fly + pac else None)
-    return {"score": score, "W": W, "games": games}
+    return {"score": score, "W": W, "games": games, "censored": censored}
 
 
 def paired_ci(x: list[float], y: list[float], level: float) -> dict:
@@ -131,32 +188,41 @@ def _f(x, nd=3):
 def build_results(bundle: Path) -> dict:
     index = json.loads((bundle / "index.json").read_text(encoding="utf-8"))
     root = bundle.parent
-    metrics, summary, level, seeds = {}, {}, None, None
+    metrics, summary, level, seeds, warn = {}, {}, None, None, None
     for r in index["runs"]:
         d = root / r["run_dir"]
         cfg = yaml.safe_load((d / "config.yaml").read_text(encoding="utf-8"))
         seeds = [int(s) for s in cfg["seeds"]]
         level = float(cfg["final_eval"]["ci_level"])
+        warn = float(cfg["final_eval"]["censored_warn_fraction"])
         rows = read_games(d / "games.csv")
         metrics[r["condition"]] = per_seed_metrics(rows, seeds)
         fly, pac = sum(x["승자"] == "FLIES" for x in rows), sum(x["승자"] == "PACMAN" for x in rows)
         summary[r["condition"]] = {
             "games": len(rows), "fly_wins": fly, "pacman_wins": pac,
             "censored": sum(x["승자"] == "CENSORED" for x in rows),
+            "censored_fraction": (sum(x["승자"] == "CENSORED" for x in rows) / len(rows)) if rows else None,
             "tick_median": statistics.median(int(x["틱 수"]) for x in rows) if rows else None,
-            "score_mean_of_seed_means": statistics.fmean(metrics[r["condition"]]["score"]),
+            "score_mean_of_seed_means": (statistics.fmean(v for v in metrics[r["condition"]]["score"] if v is not None)
+                                         if any(v is not None for v in metrics[r["condition"]]["score"]) else None),
             "W_mean_of_seed_means": (statistics.fmean(metrics[r["condition"]]["W"])
                                      if None not in metrics[r["condition"]]["W"] else None)}
-    return {"eval_seeds": seeds, "ci_level": level, "metrics": metrics, "summary": summary,
+    return {"eval_seeds": seeds, "ci_level": level, "censored_warn_fraction": warn, "metrics": metrics, "summary": summary,
             "comparisons": compare(metrics, level), "runs": index["runs"]}
 
 
 def render_report(res: dict) -> str:
     lvl = int(round(res["ci_level"] * 100))
-    L = ["# 최종 평가 (DECISIONS 26.4)", "",
+    warn = res["censored_warn_fraction"]
+    flagged = [c for c, s in res["summary"].items() if s["censored_fraction"] is not None and s["censored_fraction"] > warn]
+    L = ["# 최종 평가 (DECISIONS 26.4)", ""]
+    if flagged:
+        L += [f"> **해석 주의: 중단 비율.** 중단 비율이 {warn}를 넘는 조건: "
+              + ", ".join(f"{c} ({res['summary'][c]['censored_fraction']:.3f})" for c in flagged), ""]
+    L += [
          f"- 독립 반복 단위는 학습 시드다. 시드별 평균 Y_s를 먼저 내고 짝 차이 Δ_s = Y_s(앞) − Y_s(뒤)의 평균과 {lvl}% 신뢰구간"
          f"(t 분포, 자유도 n − 1)을 낸다. 평가 시드: {res['eval_seeds']}",
-         "- 대표 지표는 팩맨 평균 점수(낮을수록 초파리 우수), 보조 지표는 초파리 승률 W다.",
+         "- 대표 지표는 팩맨 평균 점수(낮을수록 초파리 우수), 보조 지표는 초파리 승률 W다. 중단(CENSORED) 판은 둘 다에서 뺀다 (28.4).",
          "- **다중 비교 보정은 하지 않았다.**", "", "## 조건별", "",
          "| 조건 | 판 수 | 초파리 승 | 팩맨 승 | 중단 | 판 길이(틱) 중앙값 | 팩맨 점수 (시드 평균의 평균) | W (시드 평균의 평균) |",
          "|---|---|---|---|---|---|---|---|"]
@@ -174,6 +240,10 @@ def render_report(res: dict) -> str:
             lower = sum(d < 0 for d in ci["deltas"])
             L.append(f"| {r['kind']} | {r['a']} − {r['b']} | {_f(ci['mean'], nd)} | [{_f(ci['lo'], nd)}, {_f(ci['hi'], nd)}] | "
                      f"{'예' if ci['excludes_zero'] else '아니오'} | {lower}/{ci['n']} |")
+    L += ["", "## 시드별 중단 수", "", "| 조건 | " + " | ".join(str(s) for s in res["eval_seeds"]) + " |",
+          "|---|" + "---|" * len(res["eval_seeds"])]
+    for c, mm in res["metrics"].items():
+        L.append(f"| {c} | " + " | ".join(str(v) for v in mm["censored"]) + " |")
     L += ["", "## 시드별 값 (10쌍 모두)", "", "| 조건 | 지표 | " + " | ".join(str(s) for s in res["eval_seeds"]) + " |",
           "|---|---|" + "---|" * len(res["eval_seeds"])]
     for c, mm in res["metrics"].items():
@@ -220,9 +290,11 @@ def run(config_path: Path, train_dirs: list[Path]) -> int:
     eval_seeds = [int(s) for s in base["seeds"]]
     out_dir = Path("runs") / str(base["experiment"])
     try:
+        check_threads()
         if len(train_seeds) != len(eval_seeds):
             raise EvalSetupError("train_seeds와 seeds의 길이가 다르다 (위치로 짝짓는다)")
         weights = collect_weights(train_dirs, conditions, train_seeds)
+        check_train_dirs(base, train_dirs)
         ckpt = Path(base["pacman"]["checkpoint"])
         if not ckpt.exists() or select_eps._sha256(ckpt) != select_eps.CHECKPOINT_SHA256:
             raise EvalSetupError(f"체크포인트가 없거나 sha256이 DECISIONS 14.6의 값과 다르다: {ckpt}")

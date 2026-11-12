@@ -88,6 +88,9 @@ def _run_child(job: dict, out: Path) -> dict:
 def run_batch(base: dict, conditions: list[str], k: int, sequential: bool, out: Path) -> dict:
     """프로세스들을 돌리고 out/index.json을 쓴다. 반환: index 사전 (runs, wall_seconds, failed)."""
     out = Path(out)
+    fixed = (base.get("parallel") or {}).get("split")
+    if fixed is not None and int(fixed) != int(k):  # 설정에 분할 수가 있으면 대조한다 (DECISIONS 28.6)
+        raise ValueError(f"--split {k}가 설정의 parallel.split({fixed})와 다르다. 비트 단위 재현은 설정의 분할 수만 보장한다 (DECISIONS 27.5)")
     jobs = plan(base, conditions, k)
     (out / "cfg").mkdir(parents=True, exist_ok=False)
     (out / "logs").mkdir()
@@ -133,7 +136,11 @@ def main(argv: list[str]) -> int:
     cfg = load_config(a.config)
     out = a.out or make_run_dir(cfg, Path("runs"))
     conditions = [c for c in a.conditions.split(",") if c]
-    index = run_batch(cfg.to_dict(), conditions, a.split, a.sequential, out)
+    try:
+        index = run_batch(cfg.to_dict(), conditions, a.split, a.sequential, out)
+    except ValueError as e:
+        print(f"멈춤: {e}", file=sys.stderr)
+        return 2
     print(f"묶음 폴더: {out} ({len(index['runs'])}개 프로세스, {index['wall_seconds']:.1f}초)")
     if index["failed"]:
         print(f"실패: {', '.join(index['failed'])} (오류 출력: {out / 'logs'})", file=sys.stderr)

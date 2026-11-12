@@ -3,7 +3,8 @@
 #   OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 #     uv run --extra pacman python scripts/final_eval.py run configs/final_eval_v1.yaml <학습 결과 폴더> ...
 # `condition`, `ghosts`, `evaluate`, `experiment`는 스크립트가 조건마다 채운다 (final_eval 블록이 원본).
-# engine · time · odor · phero · pacman · run 블록은 configs/integ_v1.yaml에서 값을 바꾸지 않고 복사했다.
+# engine · time · odor · phero · pacman 블록은 학습(configs/main_v1.yaml)과 같아야 하고, run은 판 수에 맞췄다 (28.2 · 28.3 · 28.4).
+# pacman에는 checkpoint_sha256을 더했다 (28.3).
 # 이 파일은 관리자 소유다.
 experiment: final_eval_v1
 seeds: [9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009]   # 평가 시드 e_i
@@ -26,11 +27,13 @@ engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
 time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
 phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
-pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
+pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, checkpoint_sha256: 4670fad239ee6324464b231cbe944afe8993167fbe20e1909fc23648b61e07f8, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
 replay: {keep_games: [1], brain: true}
-run:    {max_loop_ticks: 2000000}
+run:    {max_loop_ticks: 4000000}   # ≥ 판 수 × watchdog_ticks = 200 × 20000 (DECISIONS 28.2)
 final_eval:
   conditions: [regime1, regime2, regime3, b0, b1]
   train_seeds: [8000, 8001, 8002, 8003, 8004, 8005, 8006, 8007, 8008, 8009]   # s_i, 위치로 e_i와 짝
   ghosts: {flybrain: {kind: flybrain, config: configs/brain_v1.yaml}, b1: {kind: original}}
   ci_level: 0.95
+  train_n_games: 3000           # 학습 폴더의 n_games와 대조 (DECISIONS 28.4)
+  censored_warn_fraction: 0.05 # 어느 조건이든 중단 비율이 이를 넘으면 보고서 맨 위에 해석 주의 (28.4)
