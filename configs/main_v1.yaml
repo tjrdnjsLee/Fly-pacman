@@ -1,4 +1,4 @@
-# 본 실험 (M3): 다섯 조건을 판 3000, 시드 8000 ~ 8009로 학습한다. 규모는 DECISIONS 27.4 (측정 결과는 27.5).
+# 본 실험 (M5): 다섯 조건을 판 3000, 시드 8000 ~ 8009로 학습한다. 규모는 DECISIONS 27.4 (측정 결과는 27.5).
 # 실행 (고른 배치 A: 조건당 프로세스 하나, 시드 10개 한 묶음, 동시에. 비트 단위 재현은 이 배치만 보장한다, 27.5):
 #   uv run --extra pacman python scripts/run_parallel.py configs/main_v1.yaml \
 #     --conditions regime1,regime2,regime3,b0,b1 --split 1
