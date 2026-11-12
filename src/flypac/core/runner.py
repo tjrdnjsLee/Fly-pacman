@@ -30,6 +30,18 @@ class NullRecorder:
     def close(self): ...
 
 
+def check_loop_limit(cfg) -> None:
+    """무한 루프 한도는 판 수 × 감시 장치 틱 이상이어야 한다 (DECISIONS 28.2). 두 키 중 하나라도 없으면 검사하지 않는다."""
+    engine = cfg.get("engine", None)
+    if "n_games" not in cfg or engine is None or "watchdog_ticks" not in engine:
+        return
+    n_games, watchdog = int(cfg.n_games), int(engine.watchdog_ticks)
+    limit = int(cfg.run.max_loop_ticks)
+    if limit < n_games * watchdog:
+        raise ValueError(f"run.max_loop_ticks({limit})가 n_games({n_games}) × engine.watchdog_ticks({watchdog}) = "
+                         f"{n_games * watchdog}보다 작다 (DECISIONS 28.2)")
+
+
 class Runner(TickCore):
     """실험 실행기: TickCore에 부품 조립 · views 규칙 검사 · 무한 루프 감시 · 기록기 닫기를 더한다."""
 
@@ -62,6 +74,7 @@ class Runner(TickCore):
         self.finish(self.pacman.act(views))   # 2~13
 
     def run(self) -> dict:
+        check_loop_limit(self.cfg)
         self._reset_all()
         guard = int(self.cfg.run.max_loop_ticks)
         while not self.finished.all():
@@ -103,6 +116,11 @@ def build_runner(cfg, recorder=None) -> Runner:
         missing = [k for k in ("checkpoint", "device", "eps") if k not in pc]
         if missing:
             raise ValueError(f"pacman.kind: ppo에는 pacman.{', pacman.'.join(missing)} 설정이 필요하다")
+        if "checkpoint_sha256" in pc:  # DECISIONS 28.3: 체크포인트가 설정의 해시와 같아야 한다
+            from flypac.recording.envinfo import checkpoint_sha256
+            actual = checkpoint_sha256(pc.checkpoint)
+            if actual != str(pc.checkpoint_sha256):
+                raise ValueError(f"체크포인트 sha256이 설정과 다르다: {pc.checkpoint}의 {actual}, 설정 {pc.checkpoint_sha256}")
         pacman = PPOPacman(str(pc.checkpoint), str(pc.device), float(pc.eps), game_rngs(seeds, "pacman"),
                            run_cfg=cfg)
     else:

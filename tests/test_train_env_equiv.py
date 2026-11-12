@@ -75,7 +75,7 @@ def start_env(env: PacmanTrainEnv) -> dict:
 
 def make_pair():
     env = PacmanTrainEnv(train_cfg(), B, SEED, ghosts="random", condition="regime1")
-    cfg = make_cfg(seeds=env.slot_seeds, n_games=1000, run={"max_loop_ticks": 10**6})
+    cfg = make_cfg(seeds=env.slot_seeds, n_games=1000, run={"max_loop_ticks": 2 * 10**7})
     runner = build_runner(cfg)
     return env, runner
 

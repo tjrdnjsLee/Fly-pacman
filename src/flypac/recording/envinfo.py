@@ -6,9 +6,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import platform
+from pathlib import Path
 
 import numpy as np
+
+
+def checkpoint_sha256(path) -> str:
+    h = hashlib.sha256()
+    with open(Path(path), "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _brain_info(cfg) -> dict:
@@ -32,6 +42,7 @@ def environment_info(cfg) -> dict:
     info = {
         "python": platform.python_version(), "numpy": np.__version__, "platform": platform.platform(),
         "pacman_kind": kind,
+        "pacman_checkpoint": None, "pacman_checkpoint_sha256": None,
         "pacman_device_setting": None, "pacman_device": None,
         "torch": None, "torch_cuda": None, "gpu": None,
     }
@@ -41,6 +52,10 @@ def environment_info(cfg) -> dict:
     import torch
 
     from flypac.pacman.trainer import resolve_device
+
+    ckpt = pacman.get("checkpoint", None)  # 최소 설정(시험)에는 체크포인트가 없을 수 있다
+    if ckpt is not None:
+        info.update(pacman_checkpoint=str(ckpt), pacman_checkpoint_sha256=checkpoint_sha256(ckpt))
 
     setting = str(pacman.device)
     device = resolve_device(setting)
