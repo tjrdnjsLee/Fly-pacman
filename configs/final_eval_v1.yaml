@@ -28,7 +28,7 @@ time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
 phero:  {D: 4.0, lam: 0.05, gain: 0.5922}   # 체제3만 쓴다. DECISIONS 29
 pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, checkpoint_sha256: 4670fad239ee6324464b231cbe944afe8993167fbe20e1909fc23648b61e07f8, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
-replay: {keep_games: [1], brain: true}
+replay: {keep_games: [1], brain: true}   # 판 1만 (DECISIONS 26.4, 28.5)
 run:    {max_loop_ticks: 4000000}   # ≥ 판 수 × watchdog_ticks = 200 × 20000 (DECISIONS 28.2)
 final_eval:
   conditions: [regime1, regime2, regime3, b0, b1]

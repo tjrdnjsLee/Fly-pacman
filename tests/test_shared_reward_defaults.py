@@ -15,7 +15,7 @@ SMOKE_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "m0_smoke.yaml"
 EMISSION = {"odor": {"c0": 0.01}, "phero": {"gain": 0.5922}}
 
 
-def test_regime3_builds_from_smoke_config_with_only_condition_changed():
+def test_regime3_builds_from_smoke_config_with_condition_and_phero_gain():
     data = load_config(SMOKE_CONFIG).to_dict()
     data["condition"] = "regime3"
     data["phero"]["gain"] = EMISSION["phero"]["gain"]  # m0_smoke의 phero는 자리표시라 gain이 없다 (DECISIONS 29.5)
