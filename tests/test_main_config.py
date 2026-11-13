@@ -1,4 +1,4 @@
-"""본 실험 · M3 곡선 설정을 시험으로 고정한다 (DECISIONS 28.6, 28.1, 28.2, 28.3, 28.5)."""
+"""본 실험 · M3 곡선 설정을 시험으로 고정한다 (DECISIONS 28.6, 28.1, 28.2, 28.3, 28.5, 재생 일정은 35.2)."""
 
 from __future__ import annotations
 
@@ -45,11 +45,13 @@ def test_main_values_follow_decisions_27_and_28():
     assert MAIN["run"]["max_loop_ticks"] == 60_003_000 and MAIN["replay"]["brain"] is True   # 3000 × 20001 (33.3)
 
 
-def test_main_replay_schedule_is_the_one_recorded_in_28_8():
-    # 28.8: 추정 용량이 20 GB 이하라 판 1과 100의 배수 판 31개
-    assert MAIN["replay"]["keep_games"] == [1, *range(100, 3001, 100)] and len(MAIN["replay"]["keep_games"]) == 31
+def test_main_replay_schedule_is_the_one_recorded_in_35():
+    # 35.2 · 35.9: 추정 용량이 20 GB 이하라 판 1과 10의 배수 판 301개. 28.8의 일정(판 1과 100의 배수)을 포함한다
+    keep = MAIN["replay"]["keep_games"]
+    assert keep == [1, *range(10, 3001, 10)] and len(keep) == 301
+    assert set([1, *range(100, 3001, 100)]) <= set(keep)
     text = (ROOT / "docs" / "DECISIONS.md").read_text(encoding="utf-8")
-    assert "판 1과 100의 배수 판 31개" in text.split("### 28.8")[1]
+    assert "판 1과 10의 배수 판 301개" in text.split("### 35.9")[1]
 
 
 def test_curve_values_follow_decisions_28_1():
@@ -77,5 +79,6 @@ def test_final_eval_shares_blocks_with_main():
     for k in (*SHARED, "pacman"):
         assert fe[k] == MAIN[k], k
     assert fe["final_eval"]["train_seeds"] == MAIN["seeds"] and fe["final_eval"]["train_n_games"] == MAIN["n_games"]
-    assert fe["run"]["max_loop_ticks"] == 4_000_200 and fe["replay"]["keep_games"] == [1]   # 200 × 20001 (33.3)
+    assert fe["run"]["max_loop_ticks"] == 4_000_200                       # 200 × 20001 (33.3)
+    assert fe["replay"] == {"keep_games": list(range(1, 51)), "brain": True}   # 판 1 ~ 50 (35.2)
     check_loop_limit(Config(fe))
