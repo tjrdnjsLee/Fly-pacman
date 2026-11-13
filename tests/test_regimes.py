@@ -44,7 +44,8 @@ def test_shared_regimes_sums(cls):
 def test_inactive_events_ignored_and_emission_zero(cls):
     r = cls(CFG)
     assert not r.rewards([catch(0, False), eaten(1, False)]).any()
-    assert not r.emission(None).any() and r.emission(None).shape == (4,)
+    if cls is not Regime3:  # 체제 3의 방출은 DECISIONS 29 (tests/test_regime3_emission.py)
+        assert not r.emission(None).any() and r.emission(None).shape == (4,)
 
 
 def test_non_reward_events_do_nothing():

@@ -33,8 +33,12 @@ def train_dir(root, name, condition, seeds, games=(100,), n_games=100):
 
 
 def test_config_blocks_match_integ_and_values():
-    for k in ("engine", "time", "odor", "phero"):
+    for k in ("engine", "time", "odor"):
         assert BASE[k] == INTEG[k], k
+    assert BASE["phero"] == {"D": 4.0, "lam": 0.05, "gain": 0.5922}   # DECISIONS 29.5 (integ_v1은 자리표시)
+    for name in ("main_v1", "m3_curve_v1"):
+        other = yaml.safe_load((ROOT / "configs" / f"{name}.yaml").read_text(encoding="utf-8"))
+        assert other["phero"] == BASE["phero"], name
     # pacman은 checkpoint_sha256 키 하나만 더 있다 (DECISIONS 28.3). run은 판 수 × watchdog_ticks 이상 (28.2)
     assert {k: v for k, v in BASE["pacman"].items() if k != "checkpoint_sha256"} == INTEG["pacman"]
     assert len(BASE["pacman"]["checkpoint_sha256"]) == 64
