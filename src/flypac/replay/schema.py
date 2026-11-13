@@ -6,6 +6,10 @@
   brain_on[t, f]가 참이면 그 틱 · 초파리의 뇌 필드 값이 실제 계산된 값이다. 뇌가 아닌 조종기(무작위 유령, B1)이거나
   그 틱에 계산하지 않은 초파리(동결된 게임)는 거짓이고, 그 자리의 뇌 필드 값은 뜻이 없다(0, KC 번호는 -1).
   뇌가 아닌 조종기의 로그에는 뇌 필드 묶음 자체가 없다.
+형식 버전 5 = 버전 4 + 기본 필드 `legal`, `strongest` (T,4,4) bool (DECISIONS 33.4). 더하기만 했다.
+  legal: 그 틱의 합법 방향 (obs.legal, 자기중심 순서). strongest: 합법 방향 중 냄새 관측(float64 obs.odor)이
+  가장 센 방향의 집합 (정확한 같음, 동률 전부 포함, 합법 방향이 없으면 모두 거짓). 결정 틱이 아니어도 매 틱 남긴다.
+  계산은 `replay/decision_metrics.py::strongest_set` 한 곳이다.
 쓰기는 항상 최신 버전. 읽기는 SUPPORTED_VERSIONS를 모두 받는다 (옛 버전 파일에는 새 필드가 없다).
 
 모양 표기: T 틱 수, N 걸을 수 있는 칸 수, K 켜진 KC 최대 수, M MBON 수, F = 4 초파리 수.
@@ -18,8 +22,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-FORMAT_VERSION = 4
-SUPPORTED_VERSIONS = (2, 3, 4)
+FORMAT_VERSION = 5
+SUPPORTED_VERSIONS = (2, 3, 4, 5)
 N_FLIES = 4
 N_SENSE = 8  # 냄새 4방향 + 페로몬 4방향 (TRD 19.4)
 N_ACTIONS = 4
@@ -81,6 +85,10 @@ FIELDS = (
     Field("moved", ("T", N_FLIES), "bool", "base", "이번 틱에 실제로 칸을 옮김 (집 출구 통과 포함)", since=3),
     Field("brain_on", ("T", N_FLIES), "bool", "base", "뇌 필드 값이 이 틱 · 초파리에서 실제 계산된 값인지 (19.13)",
           since=4),
+    Field("legal", ("T", N_FLIES, N_ACTIONS), "bool", "base", "합법 방향 (obs.legal, 자기중심 순서, DECISIONS 33.4)",
+          since=5),
+    Field("strongest", ("T", N_FLIES, N_ACTIONS), "bool", "base",
+          "합법 방향 중 냄새 관측(float64)이 가장 센 방향의 집합, 동률 전부 (DECISIONS 33.4, 17.6)", since=5),
     # --- 19.4 체제3만 ---
     Field("phero_field", ("T", "N"), "float16", "phero", "페로몬 장 (체제3만)"),
     # --- 19.13 뇌 필드 (replay.brain 설정으로 켜고 끔). KC 번호는 이 묶음에서 필수 ---

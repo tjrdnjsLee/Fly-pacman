@@ -22,6 +22,7 @@ from flypac.core.types import FlyObs, GameView
 from flypac.recording.envinfo import environment_info
 from flypac.regimes import make_regime
 from flypac.replay import schema as s
+from flypac.replay.decision_metrics import strongest_set
 from flypac.replay.writer import ReplayBuffer, replay_filename, write_replay
 
 CSV_ENCODING = "utf-8-sig"
@@ -225,6 +226,8 @@ class Recorder:
             score=v.score, fruit=int(v.fruit), odor_field=odor[b],
             sense=np.concatenate([obs.odor[b], obs.phero[b]], axis=1), action=action, pi=pi,
             committed=committed, moved=moved, brain_on=brain_on,
+            # 형식 5 (DECISIONS 33.4): 뇌가 받은 것과 같은 obs에서 매 틱. strongest는 float64 냄새로 계산한다
+            legal=obs.legal[b], strongest=strongest_set(obs.odor[b], obs.legal[b]),
         )
         if self.replay_with_phero:
             frame["phero_field"] = phero[b]

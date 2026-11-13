@@ -18,6 +18,7 @@ from flypac.core.types import GameView
 from flypac.field.odor import Field
 from flypac.maps.original import MapSpec, load_original
 from flypac.replay import schema as s
+from flypac.replay.decision_metrics import strongest_set
 from flypac.replay.writer import ReplayBuffer, replay_filename, write_replay
 from flypac.senses.sense import sense
 
@@ -123,6 +124,7 @@ def make_synthetic_arrays(
             power_ticks=0, score=score, fruit=0, odor_field=field.c[0].copy(), sense=np.concatenate(
                 [obs.odor[0], obs.phero[0]], axis=1), action=action, pi=pi,
             committed=committed, moved=moved, brain_on=np.full(F, brain),
+            legal=obs.legal[0], strongest=strongest_set(obs.odor[0], obs.legal[0]),
         )
         if phero:
             frame["phero_field"] = ph_field.c[0].copy()

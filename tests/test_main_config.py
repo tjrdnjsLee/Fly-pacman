@@ -34,12 +34,15 @@ def test_shared_blocks_match_integ(cfg):
     assert {k: v for k, v in cfg["pacman"].items() if k != "checkpoint_sha256"} == INTEG["pacman"]
     assert cfg["ghosts"] == INTEG["ghosts"]
     assert cfg["weights"] == {"every_games": 100} and cfg["parallel"] == {"split": 1}
-    check_loop_limit(Config(cfg))
+    if cfg is not CURVE:
+        # m3_curve_v1은 D§30으로 닫힌 실행의 설정이라 한도(6,000,000)를 고치지 않는다 (D§33.3, 0절). 그 재현은 그
+        # 커밋에서 한다 (D§30.4). 지금의 규칙(판 수 × (watchdog_ticks + 1))으로는 시작 검사에서 멈추므로 검사 대상에서 뺀다.
+        check_loop_limit(Config(cfg))
 
 
 def test_main_values_follow_decisions_27_and_28():
     assert MAIN["experiment"] == "main_v1" and MAIN["seeds"] == list(range(8000, 8010)) and MAIN["n_games"] == 3000
-    assert MAIN["run"]["max_loop_ticks"] == 60_000_000 and MAIN["replay"]["brain"] is True
+    assert MAIN["run"]["max_loop_ticks"] == 60_003_000 and MAIN["replay"]["brain"] is True   # 3000 × 20001 (33.3)
 
 
 def test_main_replay_schedule_is_the_one_recorded_in_28_8():
@@ -74,5 +77,5 @@ def test_final_eval_shares_blocks_with_main():
     for k in (*SHARED, "pacman"):
         assert fe[k] == MAIN[k], k
     assert fe["final_eval"]["train_seeds"] == MAIN["seeds"] and fe["final_eval"]["train_n_games"] == MAIN["n_games"]
-    assert fe["run"]["max_loop_ticks"] == 4_000_000 and fe["replay"]["keep_games"] == [1]
+    assert fe["run"]["max_loop_ticks"] == 4_000_200 and fe["replay"]["keep_games"] == [1]   # 200 × 20001 (33.3)
     check_loop_limit(Config(fe))

@@ -22,13 +22,21 @@ INTEG = yaml.safe_load((ROOT / "configs" / "integ_v1.yaml").read_text(encoding="
 SEEDS = list(range(8000, 8010))
 
 
+def weight_npz(path, seed, game_no, run_config_hash="0" * 16):
+    """가중치 파일의 메타만 든 진짜 npz (collect · check가 읽는 키: seed, game_no, run_config_hash)."""
+    import numpy as np
+
+    np.savez(path, dw_masked=np.zeros(3), rbar=np.zeros(1), seed=np.int64(seed), game_no=np.int64(game_no),
+             run_config_hash=np.str_(run_config_hash))
+
+
 def train_dir(root, name, condition, seeds, games=(100,), n_games=100):
     d = root / name
     (d / "weights").mkdir(parents=True)
     (d / "config.yaml").write_text(yaml.safe_dump({"condition": condition, "n_games": n_games}), encoding="utf-8")
     for s in seeds:
         for g in games:
-            (d / "weights" / f"s{s}_g{g:05d}.npz").write_bytes(b"x")
+            weight_npz(d / "weights" / f"s{s}_g{g:05d}.npz", s, g)
     return d
 
 
@@ -39,10 +47,10 @@ def test_config_blocks_match_integ_and_values():
     for name in ("main_v1", "m3_curve_v1"):
         other = yaml.safe_load((ROOT / "configs" / f"{name}.yaml").read_text(encoding="utf-8"))
         assert other["phero"] == BASE["phero"], name
-    # pacman은 checkpoint_sha256 키 하나만 더 있다 (DECISIONS 28.3). run은 판 수 × watchdog_ticks 이상 (28.2)
+    # pacman은 checkpoint_sha256 키 하나만 더 있다 (DECISIONS 28.3). run은 판 수 × (watchdog_ticks + 1) 이상 (33.3)
     assert {k: v for k, v in BASE["pacman"].items() if k != "checkpoint_sha256"} == INTEG["pacman"]
     assert len(BASE["pacman"]["checkpoint_sha256"]) == 64
-    assert BASE["run"]["max_loop_ticks"] >= BASE["n_games"] * BASE["engine"]["watchdog_ticks"]
+    assert BASE["run"]["max_loop_ticks"] >= BASE["n_games"] * (BASE["engine"]["watchdog_ticks"] + 1)   # 33.3
     assert BASE["final_eval"]["train_n_games"] == 3000 and BASE["final_eval"]["censored_warn_fraction"] == 0.05
     assert BASE["seeds"] == list(range(9000, 9010)) and BASE["n_games"] == 200
     assert BASE["final_eval"]["train_seeds"] == SEEDS and BASE["final_eval"]["ci_level"] == 0.95
@@ -59,7 +67,7 @@ def test_eval_config_fills_per_condition_fields():
 def test_collect_picks_last_game_file_across_folders(tmp_path):
     a = train_dir(tmp_path, "a", "regime1", SEEDS[:5], games=(50, 100))   # 한 조건이 시드를 나눠 여러 폴더로
     b = train_dir(tmp_path, "b", "regime1", SEEDS[5:], games=(50, 100))
-    got = fe.collect_weights([a, b], ["regime1", "b0", "b1"], SEEDS)
+    got = fe.collect_weights([a, b], ["regime1", "b0", "b1"], SEEDS, train_n_games=100)
     assert len(got) == 10 and all(v["game_no"] == 100 for v in got.values())
     assert got[("regime1", 8007)]["path"].parent.parent.name == "b"
 
@@ -67,14 +75,14 @@ def test_collect_picks_last_game_file_across_folders(tmp_path):
 def test_collect_stops_on_missing_duplicate_or_unfinished(tmp_path):
     a = train_dir(tmp_path, "a", "regime1", SEEDS[:9])
     with pytest.raises(fe.EvalSetupError, match="8009"):
-        fe.collect_weights([a], ["regime1"], SEEDS)                      # 빠짐
+        fe.collect_weights([a], ["regime1"], SEEDS, train_n_games=100)   # 빠짐
     b = train_dir(tmp_path, "b", "regime1", SEEDS[8:])
     with pytest.raises(fe.EvalSetupError, match="8008"):
-        fe.collect_weights([a, b], ["regime1"], SEEDS)                   # 겹침
+        fe.collect_weights([a, b], ["regime1"], SEEDS, train_n_games=100)   # 겹침
     c = train_dir(tmp_path, "c", "regime2", SEEDS, games=(50,), n_games=100)
     with pytest.raises(fe.EvalSetupError, match="끝까지"):
-        fe.collect_weights([c], ["regime2"], SEEDS)                      # 마지막 판이 아님
-    fe.collect_weights([c], ["b0", "b1"], SEEDS)                         # B0 · B1은 파일이 필요 없다
+        fe.collect_weights([c], ["regime2"], SEEDS, train_n_games=100)   # 마지막 판이 아님
+    fe.collect_weights([c], ["b0", "b1"], SEEDS, train_n_games=100)      # B0 · B1은 파일이 필요 없다
 
 
 def test_run_stops_before_anything_when_seed_files_missing(tmp_path, capsys, monkeypatch):
@@ -109,7 +117,8 @@ def test_per_seed_metrics_and_report(tmp_path):
     seeds = [9000, 9001]
     bundle = tmp_path / "final_eval_v1"
     bundle.mkdir()
-    cfg = {"seeds": seeds, "final_eval": {"ci_level": 0.95, "censored_warn_fraction": 0.05}}
+    cfg = {"seeds": seeds, "n_games": 2,
+           "final_eval": {"conditions": ["regime1", "b0"], "ci_level": 0.95, "censored_warn_fraction": 0.05}}
     data = {  # 조건: 시드별 (점수, 승자) 두 판씩
         "regime1": {9000: [(100, "FLIES"), (300, "PACMAN")], 9001: [(200, "FLIES"), (200, "FLIES")]},
         "b0": {9000: [(500, "PACMAN"), (700, "PACMAN")], 9001: [(300, "FLIES"), (500, "PACMAN")]},
@@ -226,7 +235,8 @@ def make_bundle(tmp_path, censored_per_seed):
     seeds = [9000, 9001]
     bundle = tmp_path / "final_eval_v1"
     bundle.mkdir(parents=True)
-    cfg = {"seeds": seeds, "final_eval": {"ci_level": 0.95, "censored_warn_fraction": 0.05}}
+    cfg = {"seeds": seeds, "n_games": 20,
+           "final_eval": {"conditions": ["regime1", "b0"], "ci_level": 0.95, "censored_warn_fraction": 0.05}}
     runs = []
     for cond in ("regime1", "b0"):
         d = tmp_path / f"x_{cond}"

@@ -27,7 +27,7 @@ BASE = {
     "pacman": {"kind": "rule_based"},
     "rule_based": {"danger_dist": 6, "chase_dist": 8},
     "ghosts": {"kind": "random"},
-    "run": {"max_loop_ticks": 10_000_000},  # ≥ 판 수 × watchdog_ticks (DECISIONS 28.2) 이 여유로 시험 설정이 규칙을 지킨다
+    "run": {"max_loop_ticks": 10_000_000},  # ≥ 판 수 × (watchdog_ticks + 1) (DECISIONS 33.3) 이 여유로 시험 설정이 규칙을 지킨다
 }
 
 

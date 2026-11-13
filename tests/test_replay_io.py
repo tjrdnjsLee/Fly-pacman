@@ -92,12 +92,13 @@ def test_buffer_checks_fields_and_event_codes():
 
 _V3_FIELDS = ("committed", "moved")
 _V4_FIELDS = ("brain_on",)
+_V5_FIELDS = ("legal", "strongest")
 
 
 def _as_version(a: dict, version: int) -> dict:
     """최신 배열에서 그 버전에 없는 필드를 빼고 메타데이터를 그 버전으로 바꾼다 (옛 파일 흉내)."""
     import json
-    drop = _V4_FIELDS + (_V3_FIELDS if version < 3 else ())
+    drop = _V5_FIELDS + (_V4_FIELDS if version < 4 else ()) + (_V3_FIELDS if version < 3 else ())
     old = {k: v for k, v in a.items() if k not in drop}
     meta = s.parse_meta(a[s.META_KEY])
     meta["format_version"] = version
@@ -107,8 +108,8 @@ def _as_version(a: dict, version: int) -> dict:
 
 def test_current_version_has_committed_moved_and_brain_on():
     a = make_synthetic_arrays(T=40, seed=1)
-    assert s.FORMAT_VERSION == 4 and s.validate(a)["format_version"] == 4
-    assert s.SUPPORTED_VERSIONS == (2, 3, 4)
+    assert s.FORMAT_VERSION == 5 and s.validate(a)["format_version"] == 5
+    assert s.SUPPORTED_VERSIONS == (2, 3, 4, 5)
     assert a["committed"].shape == a["moved"].shape == a["brain_on"].shape == (40, 4)
     assert a["committed"].dtype == a["brain_on"].dtype == bool
     assert (a["action"][a["committed"]] >= 0).all()  # 확정이면 행동 ≥ 0
