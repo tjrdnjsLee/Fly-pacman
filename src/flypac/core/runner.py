@@ -31,15 +31,19 @@ class NullRecorder:
 
 
 def check_loop_limit(cfg) -> None:
-    """무한 루프 한도는 판 수 × 감시 장치 틱 이상이어야 한다 (DECISIONS 28.2). 두 키 중 하나라도 없으면 검사하지 않는다."""
+    """무한 루프 한도는 판 수 × (감시 장치 틱 + 1) 이상이어야 한다 (DECISIONS 28.2, 33.3).
+
+    엔진은 `tick + 1 > watchdog_ticks`에서 판을 중단하므로 한 판은 최대 watchdog_ticks + 1틱이다.
+    두 키 중 하나라도 없으면 검사하지 않는다."""
     engine = cfg.get("engine", None)
     if "n_games" not in cfg or engine is None or "watchdog_ticks" not in engine:
         return
     n_games, watchdog = int(cfg.n_games), int(engine.watchdog_ticks)
     limit = int(cfg.run.max_loop_ticks)
-    if limit < n_games * watchdog:
-        raise ValueError(f"run.max_loop_ticks({limit})가 n_games({n_games}) × engine.watchdog_ticks({watchdog}) = "
-                         f"{n_games * watchdog}보다 작다 (DECISIONS 28.2)")
+    need = n_games * (watchdog + 1)
+    if limit < need:
+        raise ValueError(f"run.max_loop_ticks({limit})가 n_games({n_games}) × (engine.watchdog_ticks({watchdog}) + 1) = "
+                         f"{need}보다 작다 (DECISIONS 33.3: 한 판은 최대 watchdog_ticks + 1틱)")
 
 
 class Runner(TickCore):

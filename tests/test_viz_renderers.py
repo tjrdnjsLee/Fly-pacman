@@ -23,7 +23,7 @@ with pytest.MonkeyPatch.context() as patch:
     from viz.video import frame_ticks
 
 
-@pytest.mark.parametrize("version", (2, 3, 4))
+@pytest.mark.parametrize("version", (2, 3, 4, 5))
 def test_synthetic_replay_aligns_both_offscreen_renderers(tmp_path, version):
     if version == s.FORMAT_VERSION:
         path = write_synthetic(tmp_path, T=25, phero=True)

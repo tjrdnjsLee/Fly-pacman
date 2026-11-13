@@ -22,10 +22,13 @@ def cfg(n_games, limit, watchdog=100):
 
 
 def test_loop_limit_boundary_equal_passes_and_below_fails():
-    check_loop_limit(cfg(30, 3000))                                    # 같으면 통과
-    with pytest.raises(ValueError, match="28.2") as e:
-        check_loop_limit(cfg(30, 2999))
-    assert all(x in str(e.value) for x in ("2999", "30", "100"))        # 세 값이 메시지에 있다
+    # DECISIONS 33.3: 한도 ≥ 판 수 × (watchdog_ticks + 1) (28.2의 판 수 × watchdog_ticks를 고침)
+    check_loop_limit(cfg(30, 3030))                                    # 같으면 통과
+    with pytest.raises(ValueError, match="33.3") as e:
+        check_loop_limit(cfg(30, 3029))
+    assert all(x in str(e.value) for x in ("3029", "30", "100", "3030"))  # 값들이 메시지에 있다
+    with pytest.raises(ValueError, match="33.3"):
+        check_loop_limit(cfg(30, 3000))                                # 옛 규칙(판 수 × watchdog)의 경계는 이제 모자란다
 
 
 def test_loop_limit_not_checked_without_keys():
@@ -35,10 +38,18 @@ def test_loop_limit_not_checked_without_keys():
 
 
 def test_run_raises_before_running_when_limit_too_small():
-    r = build_runner(make_cfg(n_games=2, run={"max_loop_ticks": 39999}))
-    with pytest.raises(ValueError, match="28.2"):
+    r = build_runner(make_cfg(n_games=2, run={"max_loop_ticks": 40001}))   # 2 × 20001 = 40002 미만
+    with pytest.raises(ValueError, match="33.3"):
         r.run()
-    build_runner(make_cfg(n_games=1, seeds=[0], run={"max_loop_ticks": 20000})).run()   # 같으면 돈다
+    build_runner(make_cfg(n_games=1, seeds=[0], run={"max_loop_ticks": 20001})).run()   # 같으면 돈다
+
+
+# DECISIONS 33.3의 한도 규칙(판 수 × (watchdog_ticks + 1))에서 빼는 닫힌 실험의 설정. 0절 · D§30.4에 따라 닫힌 실험의
+# 설정은 바꾸지 않고, 그 실험의 재현은 그 커밋(결과 폴더의 git_commit.txt)에서 한다. 지금 main으로 돌리면 시작 검사에서
+# 멈추는 것이 맞다.
+#   m3_curve_v1: D§30으로 닫힘 (중단 판 0으로 끝났다, D§33.3이 명시).
+#   eps_select_v1: D§24로 닫힘 (100판 × 20001 = 2,000,100 > 2,000,000). 33.3에는 이름이 없으나 같은 이유다.
+CLOSED_BEFORE_33_3 = {"m3_curve_v1.yaml": 6_000_000, "eps_select_v1.yaml": 2_000_000}
 
 
 def test_every_run_config_in_the_repository_obeys_the_rule():
@@ -46,9 +57,14 @@ def test_every_run_config_in_the_repository_obeys_the_rule():
     for p in sorted((ROOT / "configs").glob("*.yaml")):
         d = yaml.safe_load(p.read_text(encoding="utf-8"))
         if "n_games" in d and "run" in d and "engine" in d and "watchdog_ticks" in d["engine"]:
+            if p.name in CLOSED_BEFORE_33_3:
+                assert d["run"]["max_loop_ticks"] == CLOSED_BEFORE_33_3[p.name]   # 값은 그대로 둔다
+                with pytest.raises(ValueError, match="33.3"):
+                    check_loop_limit(Config(d))
+                continue
             check_loop_limit(Config(d))
             checked.append(p.name)
-    assert {"main_v1.yaml", "final_eval_v1.yaml", "m3_curve_v1.yaml", "scale_v1.yaml"} <= set(checked)
+    assert {"main_v1.yaml", "final_eval_v1.yaml", "scale_v1.yaml"} <= set(checked)
 
 
 # ---------------------------------------------------------------- 체크포인트 대조 (28.3)

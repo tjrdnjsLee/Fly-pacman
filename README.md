@@ -145,7 +145,7 @@ TRD 절 번호다.
 | 시각화 · 포스터 | 4.6, 13.3, 18, 19 (19.13 포함) |
 | 뇌 | 4, 5.5, 6, 8 ~ 10, 13, 19.13 |
 
-[`docs/DECISIONS.md`](docs/DECISIONS.md)도 함께 따른다. 승인된 DECISIONS 항목이 해당 TRD 조항보다 우선한다. TRD v0.6에 반영했다. 이후 항목은 v0.7에서 정리한다.
+[`docs/DECISIONS.md`](docs/DECISIONS.md)도 함께 따른다. 승인된 DECISIONS 항목이 해당 TRD 조항보다 우선한다. TRD v0.7에 반영했다 (1 ~ 31절). 이후 항목은 다음 판에서 정리한다.
 
 ## 9. 관리자용: main 브랜치 보호 체크리스트
 

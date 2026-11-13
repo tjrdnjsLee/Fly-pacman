@@ -139,7 +139,7 @@ def _record(tmp_path, ghosts, replay_brain, ticks_games=1):
 
 def test_recorded_brain_log_has_format_fields(tmp_path):
     meta, a = _record(tmp_path, "flybrain", True)
-    assert meta["format_version"] == s.FORMAT_VERSION == 4
+    assert meta["format_version"] == s.FORMAT_VERSION == 5
     T = len(a["pac_cell"])
     for name in (*s.BRAIN_FIELDS, "brain_on"):
         assert a[name].dtype == np.dtype(s.FIELD_BY_NAME[name].dtype), name
@@ -157,6 +157,6 @@ def test_recorded_brain_log_has_format_fields(tmp_path):
 def test_log_without_brain_has_no_brain_fields(tmp_path, ghosts, replay_brain):
     """뇌가 아닌 조종기(무작위 유령, B1도 같은 경로) 또는 replay.brain이 꺼진 로그: 뇌 필드 묶음이 없다."""
     meta, a = _record(tmp_path, ghosts, replay_brain)
-    assert meta["format_version"] == 4
+    assert meta["format_version"] == 5
     assert not any(n in a for n in s.BRAIN_FIELDS)
     assert "brain_on" in a and not a["brain_on"].any()

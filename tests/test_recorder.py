@@ -175,7 +175,7 @@ def test_replay_records_committed_and_moved(tmp_path, ghosts):
     """재생 기록 형식 3 이후: 실행기 7번의 committed · moved (T,4)를 남긴다 (M1 뇌 ② 3.2)."""
     cfg, rec, out = run(tmp_path, ghosts=ghosts)
     meta, arr = read_replay(sorted((tmp_path / "run" / "replay").glob("*.npz"))[0])
-    assert meta["format_version"] == 4
+    assert meta["format_version"] == 5
     T = len(arr["pac_cell"])
     assert arr["committed"].shape == arr["moved"].shape == (T, 4)
     assert (arr["action"][arr["committed"]] >= 0).all()

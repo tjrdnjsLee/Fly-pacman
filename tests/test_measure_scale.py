@@ -181,7 +181,7 @@ def fake_base(n_games=2, seeds=(1, 2, 3, 4)):
     d = copy.deepcopy(BASE)
     d.update(experiment="scale_test", seeds=list(seeds), n_games=n_games, condition="b0",
              ghosts={"kind": "random"}, replay={"keep_games": [1], "brain": False})
-    d["run"] = {"max_loop_ticks": 20000 * n_games}   # 28.2: 판 수 × watchdog_ticks
+    d["run"] = {"max_loop_ticks": 20001 * n_games}   # 33.3: 판 수 × (watchdog_ticks + 1)
     d["scale"] = {"conditions": ["b0"], "batches": [{"name": "S", "split": 1, "sequential": True},
                                                     {"name": "A", "split": 1, "sequential": False},
                                                     {"name": "B", "split": 2, "sequential": False}]}

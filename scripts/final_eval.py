@@ -5,6 +5,8 @@
 
 칸 i는 평가 시드 e_i로 게임을 하고, 학습 조건이면 학습 시드 s_i의 마지막 가중치를 쓴다 (짝은 위치 순서).
 계산(`per_seed_metrics`, `paired_ci`, `compare`)은 순수 함수이고 t 분포 임계값은 scipy.stats.t.ppf로 구한다.
+보고 단계는 입력(조건 집합 · 시드 목록 · 공통 설정 · (시드, 판)의 완결성)을 스스로 확인하고, 짝 차이는 시드 값으로
+맞춰 계산한다 (DECISIONS 33.1). 가중치는 파일 안의 판 번호까지 대조한다 (33.2).
 """
 
 from __future__ import annotations
@@ -40,9 +42,12 @@ class EvalSetupError(ValueError):
 
 # ---------------------------------------------------------------- 가중치 파일 모으기
 
-def collect_weights(train_dirs: list[Path], conditions: list[str], train_seeds: list[int]) -> dict:
-    """{(조건, 학습 시드): {"path", "game_no"}}. 학습 조건마다 학습 시드 하나에 마지막 판 파일이 정확히 하나가
-    아니면 EvalSetupError. 마지막 판은 그 학습 실행의 n_games여야 한다 (덜 돈 실행을 평가하지 않는다)."""
+def collect_weights(train_dirs: list[Path], conditions: list[str], train_seeds: list[int], *, train_n_games: int) -> dict:
+    """{(조건, 학습 시드): {"path", "game_no", "n_games"}}. 학습 조건마다 학습 시드 하나에 마지막 판 파일이 정확히
+    하나가 아니면 EvalSetupError. 마지막 판은 그 학습 실행의 n_games여야 한다 (덜 돈 실행을 평가하지 않는다).
+
+    DECISIONS 33.2: 파일 **안의** 판 번호 = 파일 이름의 판 번호 = 학습 n_games = train_n_games(평가 설정)를
+    대조한다 (파일 안의 시드도 이름과 대조한다). 돌려주는 game_no는 대조를 통과한 파일 안의 값이다."""
     found: dict[tuple[str, int], list[dict]] = {}
     for d in map(Path, train_dirs):
         cfg = yaml.safe_load((d / "config.yaml").read_text(encoding="utf-8"))
@@ -63,10 +68,22 @@ def collect_weights(train_dirs: list[Path], conditions: list[str], train_seeds: 
             hits = found.get((cond, int(s)), [])
             if len(hits) != 1:
                 raise EvalSetupError(f"{cond} 학습 시드 {s}의 가중치 파일이 {len(hits)}개다 (정확히 1개여야 한다)")
-            if hits[0]["game_no"] != hits[0]["n_games"]:
-                raise EvalSetupError(f"{cond} 학습 시드 {s}: 마지막 파일이 판 {hits[0]['game_no']}이고 학습은 "
-                                     f"{hits[0]['n_games']}판이다 (끝까지 돈 실행이 아니다)")
-            out[(cond, int(s))] = hits[0]
+            hit = hits[0]
+            if hit["game_no"] != hit["n_games"]:
+                raise EvalSetupError(f"{cond} 학습 시드 {s}: 마지막 파일이 판 {hit['game_no']}이고 학습은 "
+                                     f"{hit['n_games']}판이다 (끝까지 돈 실행이 아니다)")
+            if hit["n_games"] != int(train_n_games):
+                raise EvalSetupError(f"{cond} 학습 시드 {s}: 학습 판 수가 {hit['n_games']}이다 "
+                                     f"(평가 설정의 train_n_games = {train_n_games})")
+            meta = read_weight_meta(hit["path"])
+            if meta["game_no"] is None:
+                raise EvalSetupError(f"{hit['path']}: 파일 안에 판 번호(game_no)가 없다 (DECISIONS 33.2)")
+            if meta["game_no"] != hit["game_no"]:
+                raise EvalSetupError(f"{hit['path']}: 파일 안의 판 번호 {meta['game_no']}가 파일 이름의 판 번호 "
+                                     f"{hit['game_no']}와 다르다 (DECISIONS 33.2)")
+            if meta["seed"] != int(s):
+                raise EvalSetupError(f"{hit['path']}: 파일 안의 시드 {meta['seed']}가 파일 이름의 시드 {s}와 다르다")
+            out[(cond, int(s))] = {**hit, "game_no": meta["game_no"]}   # 매니페스트에는 파일 안의 값 (33.2)
     return out
 
 
@@ -88,9 +105,10 @@ def recorder_config_hash(cfg: dict) -> str:
 
 
 def read_weight_meta(path: Path) -> dict:
-    """가중치 파일에서 시드와 실행 설정 해시만 읽는다 (큰 배열은 읽지 않는다)."""
+    """가중치 파일에서 시드, 판 번호, 실행 설정 해시만 읽는다 (큰 배열은 읽지 않는다). 판 번호가 없으면 None."""
     with np.load(Path(path), allow_pickle=False) as z:
-        return {"seed": int(z["seed"]), "run_config_hash": str(z["run_config_hash"])}
+        return {"seed": int(z["seed"]), "run_config_hash": str(z["run_config_hash"]),
+                "game_no": int(z["game_no"]) if "game_no" in z.files else None}
 
 
 def check_train_dirs(base: dict, train_dirs: list[Path]) -> None:
@@ -139,7 +157,7 @@ def per_seed_metrics(rows: list[dict], seeds: list[int]) -> dict:
         censored.append(len(mine) - len(done))
         score.append(statistics.fmean(int(r["점수"]) for r in done) if done else None)
         W.append(fly / (fly + pac) if fly + pac else None)
-    return {"score": score, "W": W, "games": games, "censored": censored}
+    return {"seeds": [int(s) for s in seeds], "score": score, "W": W, "games": games, "censored": censored}
 
 
 def paired_ci(x: list[float], y: list[float], level: float) -> dict:
@@ -158,17 +176,33 @@ def paired_ci(x: list[float], y: list[float], level: float) -> dict:
             "lo": lo, "hi": hi, "excludes_zero": bool(lo > 0 or hi < 0)}
 
 
+def _by_seed(metrics: dict, cond: str, m: str) -> dict[int, float | None]:
+    """조건 cond의 지표 m을 {시드: 값}으로. 시드가 겹치면 EvalSetupError (DECISIONS 33.1)."""
+    seeds = [int(s) for s in metrics[cond]["seeds"]]
+    if len(set(seeds)) != len(seeds):
+        raise EvalSetupError(f"{cond}: 시드 목록에 겹치는 시드가 있다 ({seeds})")
+    return dict(zip(seeds, metrics[cond][m]))
+
+
 def compare(metrics: dict[str, dict], level: float) -> list[dict]:
-    """조건 쌍의 짝 차이. 체제 i vs B0 (학습 효과 판단), 체제끼리, 참고로 B1과의 차이."""
+    """조건 쌍의 짝 차이. 체제 i vs B0 (학습 효과 판단), 체제끼리, 참고로 B1과의 차이.
+
+    짝은 위치가 아니라 **시드 값으로** 맞춘다 (DECISIONS 33.1). metrics[조건]["seeds"]가 각 값의 시드이고, 두 조건의
+    시드 집합이 다르면 EvalSetupError. 차이의 순서는 앞 조건의 시드 순서다."""
     regimes = [c for c in LEARNING if c in metrics]
     pairs = [(r, "b0", "학습 효과") for r in regimes if "b0" in metrics]
     pairs += [(a, b, "체제 비교") for a, b in combinations(regimes, 2)]
     pairs += [(c, "b1", "참고") for c in (*regimes, "b0") if c in metrics and "b1" in metrics]
     out = []
     for a, b, kind in pairs:
-        row = {"a": a, "b": b, "kind": kind}
+        order = [int(s) for s in metrics[a]["seeds"]]
+        if set(order) != set(int(s) for s in metrics[b]["seeds"]):
+            raise EvalSetupError(f"{a}와 {b}의 시드 집합이 다르다: {sorted(order)} / "
+                                 f"{sorted(int(s) for s in metrics[b]['seeds'])}")
+        row = {"a": a, "b": b, "kind": kind, "seeds": order}
         for m in ("score", "W"):
-            xs, ys = metrics[a][m], metrics[b][m]
+            xa, xb = _by_seed(metrics, a, m), _by_seed(metrics, b, m)
+            xs, ys = [xa[s] for s in order], [xb[s] for s in order]
             row[m] = None if None in xs or None in ys else paired_ci(xs, ys, level)
         out.append(row)
     return out
@@ -185,17 +219,85 @@ def _f(x, nd=3):
     return "-" if x is None else f"{x:.{nd}f}"
 
 
+def check_rows(cond: str, rows: list[dict], seeds: list[int], n_games: int) -> None:
+    """조건 하나의 games.csv 행: (시드, 판)이 겹치지 않고, 시드 목록 밖의 시드가 없고, 시드마다 판 1 ~ n_games가
+    모두 있다. 어긋나면 어느 조건 · 시드 · 판인지 적어 EvalSetupError (DECISIONS 33.1)."""
+    want = set(int(s) for s in seeds)
+    seen: dict[int, set[int]] = {s: set() for s in want}
+    for r in rows:
+        if "조건" in r and r["조건"] != cond:
+            raise EvalSetupError(f"{cond}: games.csv에 다른 조건의 행이 있다 ({r['조건']}, 시드 {r['시드']}, 판 {r['판']})")
+        s, g = int(r["시드"]), int(r["판"])
+        if s not in want:
+            raise EvalSetupError(f"{cond}: 시드 {s}(판 {g})가 설정의 시드 목록에 없다")
+        if g in seen[s]:
+            raise EvalSetupError(f"{cond}: 시드 {s}의 판 {g}가 두 번 있다")
+        seen[s].add(g)
+    for s in seeds:
+        got = seen[int(s)]
+        missing = sorted(set(range(1, n_games + 1)) - got)
+        extra = sorted(got - set(range(1, n_games + 1)))
+        if missing or extra:
+            raise EvalSetupError(f"{cond}: 시드 {s}의 판이 1 ~ {n_games}와 다르다 (빠진 판 {missing[:10]}"
+                                 f"{' …' if len(missing) > 10 else ''}, 범위 밖 판 {extra[:10]})")
+
+
+def check_bundle(runs: list[dict], cfgs: dict[str, dict]) -> dict:
+    """묶음의 조건 설정들을 대조한다 (DECISIONS 33.1). 공통 값 {"conditions", "seeds", "ci_level",
+    "censored_warn_fraction", "n_games"}을 돌려준다. 어긋나면 EvalSetupError.
+
+    - 조건 집합 = final_eval.conditions (빠지거나 남거나 겹치면 멈춘다). 조건마다 config.yaml의 condition이 같다.
+    - 모든 조건의 seeds가 순서까지 같고, ci_level · censored_warn_fraction · n_games · final_eval.conditions가 같다."""
+    names = [str(r["condition"]) for r in runs]
+    if not names:
+        raise EvalSetupError("index.json에 조건이 없다")
+    dup = sorted({c for c in names if names.count(c) > 1})
+    if dup:
+        raise EvalSetupError(f"index.json에 같은 조건이 두 번 있다: {dup}")
+    ref_name = names[0]
+
+    def common(cond: str) -> dict:
+        cfg = cfgs[cond]
+        fe = cfg.get("final_eval") or {}
+        missing = [k for k in ("conditions", "ci_level", "censored_warn_fraction") if k not in fe]
+        missing += [k for k in ("seeds", "n_games") if k not in cfg]
+        if missing:
+            raise EvalSetupError(f"{cond}: config.yaml에 {missing}이 없다")
+        if "condition" in cfg and str(cfg["condition"]) != cond:
+            raise EvalSetupError(f"{cond}: config.yaml의 condition이 {cfg['condition']}이다")
+        return {"conditions": [str(c) for c in fe["conditions"]], "seeds": [int(s) for s in cfg["seeds"]],
+                "ci_level": float(fe["ci_level"]), "censored_warn_fraction": float(fe["censored_warn_fraction"]),
+                "n_games": int(cfg["n_games"])}
+
+    ref = common(ref_name)
+    for cond in names[1:]:
+        got = common(cond)
+        for k, v in ref.items():
+            if got[k] != v:
+                raise EvalSetupError(f"{cond}: {k}가 {ref_name}와 다르다 ({got[k]} / {v}). "
+                                     "모든 조건이 같아야 한다 (DECISIONS 33.1)")
+    if len(set(ref["seeds"])) != len(ref["seeds"]):
+        raise EvalSetupError(f"시드 목록에 겹치는 시드가 있다: {ref['seeds']}")
+    if set(names) != set(ref["conditions"]) or len(ref["conditions"]) != len(set(ref["conditions"])):
+        raise EvalSetupError(f"묶음의 조건 {sorted(names)}이 final_eval.conditions {ref['conditions']}와 다르다 "
+                             f"(빠진 것 {sorted(set(ref['conditions']) - set(names))}, "
+                             f"남는 것 {sorted(set(names) - set(ref['conditions']))})")
+    return ref
+
+
 def build_results(bundle: Path) -> dict:
+    """묶음의 games.csv들을 읽어 26.4의 표. 계산 전에 입력을 확인한다 (check_bundle · check_rows, DECISIONS 33.1)."""
     index = json.loads((bundle / "index.json").read_text(encoding="utf-8"))
     root = bundle.parent
-    metrics, summary, level, seeds, warn = {}, {}, None, None, None
+    cfgs = {str(r["condition"]): yaml.safe_load((root / r["run_dir"] / "config.yaml").read_text(encoding="utf-8"))
+            for r in index["runs"]}
+    common = check_bundle(index["runs"], cfgs)
+    seeds, level, warn = common["seeds"], common["ci_level"], common["censored_warn_fraction"]
+    metrics, summary = {}, {}
     for r in index["runs"]:
         d = root / r["run_dir"]
-        cfg = yaml.safe_load((d / "config.yaml").read_text(encoding="utf-8"))
-        seeds = [int(s) for s in cfg["seeds"]]
-        level = float(cfg["final_eval"]["ci_level"])
-        warn = float(cfg["final_eval"]["censored_warn_fraction"])
         rows = read_games(d / "games.csv")
+        check_rows(str(r["condition"]), rows, seeds, common["n_games"])
         metrics[r["condition"]] = per_seed_metrics(rows, seeds)
         fly, pac = sum(x["승자"] == "FLIES" for x in rows), sum(x["승자"] == "PACMAN" for x in rows)
         summary[r["condition"]] = {
@@ -293,7 +395,7 @@ def run(config_path: Path, train_dirs: list[Path]) -> int:
         check_threads()
         if len(train_seeds) != len(eval_seeds):
             raise EvalSetupError("train_seeds와 seeds의 길이가 다르다 (위치로 짝짓는다)")
-        weights = collect_weights(train_dirs, conditions, train_seeds)
+        weights = collect_weights(train_dirs, conditions, train_seeds, train_n_games=int(fe["train_n_games"]))
         check_train_dirs(base, train_dirs)
         ckpt = Path(base["pacman"]["checkpoint"])
         if not ckpt.exists() or select_eps._sha256(ckpt) != select_eps.CHECKPOINT_SHA256:
@@ -338,7 +440,11 @@ def main(argv: list[str]) -> int:
     if len(argv) >= 4 and argv[1] == "run":
         return run(Path(argv[2]), [Path(p) for p in argv[3:]])
     if len(argv) == 3 and argv[1] == "report":
-        return report(Path(argv[2]))
+        try:
+            return report(Path(argv[2]))
+        except EvalSetupError as e:   # 입력 확인 실패 (DECISIONS 33.1): 보고서를 쓰지 않는다
+            print(f"멈춤: {e}", file=sys.stderr)
+            return 1
     print("사용법: final_eval.py run <평가 설정.yaml> <학습 결과 폴더> ... | final_eval.py report <평가 묶음 폴더>",
           file=sys.stderr)
     return 2
