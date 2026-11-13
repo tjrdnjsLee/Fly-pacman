@@ -38,7 +38,8 @@ def test_m4_check_values_follow_decisions_34_2():
 
 
 def test_m4_eval_differs_from_final_eval_only_in_allowed_keys():
-    assert diff_keys(FINAL, EVAL) == {"experiment", "seeds", "n_games", "run", "final_eval"}
+    # replay: M4 평가는 final_eval_v1의 옛 재생 일정(판 1)으로 돌았고 그 뒤 final_eval_v1만 판 1 ~ 50으로 바뀌었다 (D§34.4, 35.8)
+    assert diff_keys(FINAL, EVAL) == {"experiment", "seeds", "n_games", "run", "final_eval", "replay"}
     assert diff_keys(FINAL["final_eval"], EVAL["final_eval"]) == {"train_seeds", "train_n_games"}
     assert FINAL["run"].keys() == EVAL["run"].keys()
 
@@ -46,7 +47,7 @@ def test_m4_eval_differs_from_final_eval_only_in_allowed_keys():
 def test_m4_eval_values_follow_decisions_34_2_and_pair_with_m4_check():
     assert EVAL["experiment"] == "m4_eval_v1" and EVAL["seeds"] == list(range(7400, 7410)) and EVAL["n_games"] == 5
     assert EVAL["run"] == {"max_loop_ticks": 100_005}                        # 5 × (20000 + 1), 33.3
-    assert EVAL["replay"] == FINAL["replay"] == {"keep_games": [1], "brain": True}
+    assert EVAL["replay"] == {"keep_games": [1], "brain": True}             # final_eval_v1의 옛 일정 (D§35.8)
     assert EVAL["final_eval"]["train_seeds"] == CHECK["seeds"] and EVAL["final_eval"]["train_n_games"] == CHECK["n_games"]
     for k in ("engine", "time", "odor", "phero", "pacman"):                  # 평가가 학습 폴더와 대조하는 블록 (28.4)
         assert EVAL[k] == CHECK[k], k
