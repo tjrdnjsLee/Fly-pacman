@@ -3,6 +3,7 @@ docs/*.pdf
 M0_TASK.md
 *_TASK.md
 AUDIT_*.md
+HANDOFF_*.md
 
 # 실행 결과 · 비밀값 · 캐시
 runs/

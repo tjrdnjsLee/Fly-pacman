@@ -1,0 +1,40 @@
+# M4 최종 통합 검증의 평가 실행 (DECISIONS 34): 최종 평가(configs/final_eval_v1.yaml)와 같은 경로를 평가 시드 7400 ~ 7409, 칸마다 5판으로 돈다.
+# 실행 (학습 결과 폴더는 configs/m4_check_v1.yaml로 돈 묶음 T의 조건 폴더 다섯):
+#   OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+#     uv run --extra pacman python scripts/final_eval.py run configs/m4_eval_v1.yaml \
+#     $T/regime1_p1 $T/regime2_p1 $T/regime3_p1 $T/b0_p1 $T/b1_p1
+# 평가 묶음 폴더는 runs/m4_eval_v1 (이름 고정). 확인은 scripts/check_m4.py <학습 묶음 폴더> <평가 묶음 폴더> (34.3).
+# configs/final_eval_v1.yaml을 복사하고 experiment · seeds · n_games · run · final_eval.train_seeds · final_eval.train_n_games만
+# 바꿨다 (시험 tests/test_m4_config.py). `condition`, `ghosts`, `evaluate`, `experiment`는 스크립트가 조건마다 채운다.
+# 7400 ~ 7409는 다른 곳에 쓰지 않는다 (34.2). 이 파일은 관리자 소유다.
+experiment: m4_eval_v1
+seeds: [7400, 7401, 7402, 7403, 7404, 7405, 7406, 7407, 7408, 7409]   # 평가 시드 e_i
+n_games: 5
+
+engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         b1: {force_reversal: original, scatter_chase_s: [7, 20, 7, 20, 5, 20, 5],
+              scatter_targets: [[-3, 25], [-3, 2], [31, 27], [31, 0]],
+              pinky_ahead: 4, inky_ahead: 2, clyde_chase_distance: 8,
+              no_up_cells: [[11, 12], [11, 15], [23, 12], [23, 15]]},
+         release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,  # 가짜 엔진 전용, 진짜 엔진은 읽지 않는다 (DECISIONS 33.5)
+         watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71,
+         house_personal_dots: [0, 0, 30, 60], house_global_dots: [7, 17, 32],
+         house_no_dot_s: 4, pacman_power_speed: 0.90, pacman_power_dot_speed: 0.79,
+         fly_frightened_speed: 0.50, score_ghosts: [200, 400, 800, 1600],
+         fruit_s: 9.5, fruit_dots_eaten: [70, 170], score_fruit: 100,
+         elroy_dots_left: [20, 10], elroy_speeds: [0.80, 0.85],
+         fly_tunnel_speed: 0.40, pacman_normal_speed_cap: 0.80,
+         fly_normal_speed_cap: 0.75}  # DECISIONS 32.1
+time:   {v_max_tiles_per_s: 9.47}
+odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
+phero:  {D: 4.0, lam: 0.05, gain: 0.5922}   # 체제3만 쓴다. DECISIONS 29
+pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, checkpoint_sha256: 4670fad239ee6324464b231cbe944afe8993167fbe20e1909fc23648b61e07f8, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
+replay: {keep_games: [1], brain: true}   # 판 1만 (DECISIONS 26.4, 28.5)
+run:    {max_loop_ticks: 100005}   # 5 × (20000 + 1) (DECISIONS 33.3)
+final_eval:
+  conditions: [regime1, regime2, regime3, b0, b1]
+  train_seeds: [7300, 7301, 7302, 7303, 7304, 7305, 7306, 7307, 7308, 7309]   # s_i, 위치로 e_i와 짝
+  ghosts: {flybrain: {kind: flybrain, config: configs/brain_v1.yaml}, b1: {kind: original}}
+  ci_level: 0.95
+  train_n_games: 20             # 학습 폴더의 n_games와 대조 (DECISIONS 28.4)
+  censored_warn_fraction: 0.05 # 어느 조건이든 중단 비율이 이를 넘으면 보고서 맨 위에 해석 주의 (28.4)
