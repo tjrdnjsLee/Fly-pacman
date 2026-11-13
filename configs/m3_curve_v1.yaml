@@ -4,7 +4,8 @@
 #   uv run --extra pacman python scripts/run_parallel.py configs/m3_curve_v1.yaml \
 #     --conditions regime1,regime2,regime3,b0,b1 --split 1
 # 학습 가중치는 100판마다와 마지막 판에 저장한다 (DECISIONS 26.1). 이 폴더는 최종 평가(26.4)에 쓰지 않는다 (판 수 불일치로 평가가 멈춘다, 28.4).
-# engine · time · odor · phero · pacman 블록은 configs/integ_v1.yaml에서 값을 바꾸지 않고 복사했다 (pacman에는 checkpoint_sha256만 더했다, 28.3).
+# engine · time · odor · pacman 블록은 configs/integ_v1.yaml에서 값을 바꾸지 않고 복사했다 (pacman에는 checkpoint_sha256만 더했다, 28.3).
+# phero 블록은 DECISIONS 29 (integ_v1은 자리표시).
 # run.max_loop_ticks는 판 수에 맞췄다 (28.2).
 # `condition`, `ghosts`(b1이면 original)는 run_parallel.py가 조건마다 채운다. 아래 ghosts는 b1이 아닌 조건의 뇌.
 # 관련: DECISIONS 24 (ε), 26 (가중치 저장 · 최종 평가), 27 (규모), 28 (점검 처리: 한도 · 체크포인트 해시 · 재생 일정). 이 파일은 관리자 소유다.
@@ -28,7 +29,7 @@ engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
          fly_normal_speed_cap: 0.75}  # TODO(M1, 미결 8): 속도·타이머 참고값은 M1에서 확인
 time:   {v_max_tiles_per_s: 9.47}
 odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
-phero:  {D: 1.0, lam: 0.1}                 # 체제3만 쓴다. TODO(미결 5)
+phero:  {D: 4.0, lam: 0.05, gain: 0.5922}   # 체제3만 쓴다. DECISIONS 29
 pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, checkpoint_sha256: 4670fad239ee6324464b231cbe944afe8993167fbe20e1909fc23648b61e07f8, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
 ghosts: {kind: flybrain, config: configs/brain_v1.yaml}
 replay: {keep_games: [1, 100, 200, 300], brain: true}   # DECISIONS 28.5

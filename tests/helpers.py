@@ -22,7 +22,7 @@ BASE = {
     "engine": load_config(Path(__file__).resolve().parents[1] / "configs" / "m0_smoke.yaml").engine.to_dict(),
     "time": {"v_max_tiles_per_s": 9.47},
     "odor": {"D": 1.0, "lam": 0.05, "s": 1.0, "c0": 0.01, "reset_on_life_loss": True},
-    "phero": {"D": 1.0, "lam": 0.1},
+    "phero": {"D": 1.0, "lam": 0.1, "gain": 0.5922},  # gain: 체제 3이 요구하는 키 (DECISIONS 29)
     "reward": {"p": 0.25, "q": 1.0},
     "pacman": {"kind": "rule_based"},
     "rule_based": {"danger_dist": 6, "chase_dist": 8},

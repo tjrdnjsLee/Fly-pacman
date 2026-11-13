@@ -20,12 +20,16 @@ def load(name):
 
 INTEG, MAIN, CURVE = load("integ_v1"), load("main_v1"), load("m3_curve_v1")
 SHARED = ("engine", "time", "odor", "phero")
+PHERO_29 = {"D": 4.0, "lam": 0.05, "gain": 0.5922}   # DECISIONS 29.5. integ_v1의 phero는 자리표시로 남는다
 
 
 @pytest.mark.parametrize("cfg", [MAIN, CURVE], ids=["main_v1", "m3_curve_v1"])
 def test_shared_blocks_match_integ(cfg):
     for k in SHARED:
-        assert cfg[k] == INTEG[k], k
+        if k == "phero":
+            assert cfg[k] == PHERO_29
+        else:
+            assert cfg[k] == INTEG[k], k
     assert cfg["pacman"]["checkpoint_sha256"] == CKPT_SHA
     assert {k: v for k, v in cfg["pacman"].items() if k != "checkpoint_sha256"} == INTEG["pacman"]
     assert cfg["ghosts"] == INTEG["ghosts"]
@@ -57,6 +61,12 @@ def test_curve_differs_from_main_only_in_allowed_keys():
     diff = {k for k in set(MAIN) | set(CURVE) if MAIN.get(k) != CURVE.get(k)}
     assert diff == allowed
     assert MAIN["run"].keys() == CURVE["run"].keys()
+
+
+def test_phero_is_decisions_29_and_same_in_three_configs():
+    fe = load("final_eval_v1")
+    assert MAIN["phero"] == CURVE["phero"] == fe["phero"] == PHERO_29
+    assert INTEG["phero"] == {"D": 1.0, "lam": 0.1}   # 닫힌 실험의 자리표시 (29.5)
 
 
 def test_final_eval_shares_blocks_with_main():
