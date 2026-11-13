@@ -51,7 +51,7 @@ CSV 결과 파일은 UTF-8 BOM(`utf-8-sig`)으로 저장되어 엑셀에서 한�
 
 ## 4. docs 폴더와 작업 지시서
 
-PRD · TRD는 저장소의 `docs/`에 있다 (`PRD.md` 첫 줄 v1.2, `TRD.md` 첫 줄 v0.6). 관리자가 팀 공유를 위해 올렸고 공개 문서다 (DECISIONS 9절). PRD · TRD는 관리자만 고친다. `docs/DECISIONS.md`에는 각 담당이 PR로 결정을 추가하고, 관리자가 승인한다.
+PRD · TRD는 저장소의 `docs/`에 있다 (`PRD.md` 첫 줄 v1.3, `TRD.md` 첫 줄 v0.7). 관리자가 팀 공유를 위해 올렸고 공개 문서다 (DECISIONS 9절). PRD · TRD는 관리자만 고친다. `docs/DECISIONS.md`에는 각 담당이 PR로 결정을 추가하고, 관리자가 승인한다.
 
 작업 지시서(`*_TASK.md`)는 비공개다. 받은 지시서는 저장소 루트에 두고 **절대 커밋하지 않는다.** `.gitignore`가 막아 주지만, `git add .`나 `git add -A`를 쓰지 말고 파일을 지정해서 add하는 습관을 들인다. 테스트와 CI는 `docs/`의 PRD · TRD에 의존하지 않는다.
 
@@ -118,10 +118,11 @@ uv run --extra pacman python scripts/train_pacman.py --config configs/pacman_tra
 | 폴더 | 담당 | 비고 |
 |---|---|---|
 | `core/`, 설정 파일 루트, `configs/` | 관리자 | 규격 변경은 관리자만 |
-| `engine/` | 관리자 (정비: 팩맨 담당) | 정비 후 관리자 검토로만 수정 |
+| `engine/` | 관리자 | 정비 후 관리자 검토로만 수정 |
 | `field/`, `senses/`, `brain/`, `recording/`, `tasks/` | 뇌 담당 | 일부 분담 |
-| `pacman/`, `ghosts/` | 팩맨 담당 | B1 포함 |
-| `regimes/regime1·2·3` | 체제 1 · 2 · 3 담당 | 각자 자기 파일만 |
+| `pacman/`, `ghosts/` | 관리자 | B1 포함 |
+| `regimes/regime1.py`, `regimes/regime2.py` | 체제 1 · 2 담당 | 각자 자기 파일만 |
+| `regimes/regime3.py` | 관리자 | |
 | `maps/` | 맵 담당 | |
 | `analysis/` | 포스터 담당 | 기록 파일만 읽음 |
 | `replay/` | 뇌 담당 | 형식 변경은 시각화 팀과 합의 |
