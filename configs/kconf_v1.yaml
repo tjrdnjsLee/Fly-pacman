@@ -1,0 +1,34 @@
+# 본능 세기의 학습, 확인 실행 (DECISIONS 38.5 · 38.9): 체제 1 · B0를 판 3000, 확인 학습 시드 8100 ~ 8119로 학습한다.
+# 실행 (배치 A):
+#   uv run --extra pacman python scripts/run_parallel.py configs/kconf_v1.yaml --conditions regime1,b0 --split 1
+# configs/kdev_v1.yaml에서 experiment, seeds만 바꿨다 (아래 주석은 kdev_v1의 것 그대로).
+# 뇌는 configs/brain_k_v1.yaml (시냅스 학습은 끄고 본능 세기 k만 배운다). 가중치 파일(k_gain 포함)은 50판마다와 마지막 판.
+# 확인 평가는 configs/kconf_eval_v1.yaml, k의 곡선은 scripts/k_curve.py. 이 파일은 관리자 소유다.
+experiment: kconf_v1
+seeds: [8100, 8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108, 8109, 8110, 8111, 8112, 8113, 8114, 8115, 8116, 8117, 8118, 8119]
+n_games: 3000
+
+engine: {kind: real, lives: 3, pacman_speed: 1.0, fly_speed: 1.0,
+         b1: {force_reversal: original, scatter_chase_s: [7, 20, 7, 20, 5, 20, 5],
+              scatter_targets: [[-3, 25], [-3, 2], [31, 27], [31, 0]],
+              pinky_ahead: 4, inky_ahead: 2, clyde_chase_distance: 8,
+              no_up_cells: [[11, 12], [11, 15], [23, 12], [23, 15]]},
+         release_ticks: [0, 10, 20, 30], score_dot: 10, score_energizer: 50,  # 가짜 엔진 전용, 진짜 엔진은 읽지 않는다 (DECISIONS 33.5)
+         watchdog_ticks: 20000, power_s: 6, pacman_dot_speed: 0.71,
+         house_personal_dots: [0, 0, 30, 60], house_global_dots: [7, 17, 32],
+         house_no_dot_s: 4, pacman_power_speed: 0.90, pacman_power_dot_speed: 0.79,
+         fly_frightened_speed: 0.50, score_ghosts: [200, 400, 800, 1600],
+         fruit_s: 9.5, fruit_dots_eaten: [70, 170], score_fruit: 100,
+         elroy_dots_left: [20, 10], elroy_speeds: [0.80, 0.85],
+         fly_tunnel_speed: 0.40, pacman_normal_speed_cap: 0.80,
+         fly_normal_speed_cap: 0.75}  # DECISIONS 32.1
+time:   {v_max_tiles_per_s: 9.47}
+odor:   {D: 1.0, lam: 0.05, s: 1.0, c0: 0.01, reset_on_life_loss: true}
+phero:  {D: 4.0, lam: 0.05, gain: 0.5922}   # 체제3만 쓴다. DECISIONS 29
+pacman: {kind: ppo, checkpoint: runs/pacman/v1/checkpoints/best.pt, checkpoint_sha256: 4670fad239ee6324464b231cbe944afe8993167fbe20e1909fc23648b61e07f8, device: cuda, eps: 0.0}  # 장치는 명시한다: cpu와 cuda는 결과가 달라 짝지은 비교는 같은 장치일 때만 성립 (DECISIONS 22). eps 0.0은 DECISIONS 24로 정함
+ghosts: {kind: flybrain, config: configs/brain_k_v1.yaml}
+# 재생: 판 1, 1000, 2000, 3000 (DECISIONS 38.4의 개발 실행)
+replay: {keep_games: [1, 1000, 2000, 3000], brain: true}
+run:    {max_loop_ticks: 60003000}   # ≥ 판 수 × (watchdog_ticks + 1) (DECISIONS 33.3)
+weights: {every_games: 50}           # 26.1의 저장을 50판마다 (k의 곡선용, 38.4)
+parallel: {split: 1}                 # 비트 단위 재현은 배치 A(--split 1)만 보장 (27.5, DECISIONS 28.6). run_parallel.py가 --split과 대조한다

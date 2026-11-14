@@ -402,13 +402,15 @@ def test_kdev_eval_differs_from_final_eval_only_in_allowed_keys():
 
 
 def test_new_seed_ranges_are_used_nowhere_else():
-    """개발 시드(7500대 · 9300대)는 kdev 설정에만 있다. 확인 실행의 시드(8100대 · 9400대, 38.5)는 아직 어디에도 없다."""
-    dev, confirm = set(range(7500, 7510)) | set(range(9300, 9310)), set(range(8100, 8110)) | set(range(9400, 9410))
+    """개발 시드(7500대 · 9300대)는 kdev 설정에만 있다. 확인 실행의 시드(8100대 · 9400대, 38.5 · 38.9)는 kconf 설정에만 있다
+    (tests/test_kconf_config.py)."""
+    dev, confirm = set(range(7500, 7510)) | set(range(9300, 9310)), set(range(8100, 8120)) | set(range(9400, 9420))
     for path in sorted((ROOT / "configs").glob("*.yaml")):
         d = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         used = list(d.get("seeds") or []) + list((d.get("final_eval") or {}).get("train_seeds") or [])
         used = {s for s in used if isinstance(s, int)}
-        assert not confirm & used, path.name
+        if path.stem not in ("kconf_v1", "kconf_eval_v1"):
+            assert not confirm & used, path.name
         if path.stem not in ("kdev_v1", "kdev_eval_v1"):
             assert not dev & used, path.name
 
