@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -29,17 +31,19 @@ CFG, CFG_K = load_brain_config(BRAIN), load_brain_config(BRAIN_K)
 F = 4
 CSVS = ("games.csv", "lives.csv", "flies.csv")
 
-# 이 PR 전의 main(9bc941b)에서 `_run_cfg()`(뇌 brain_v1, 체제 1, 시드 0 · 1, 3판, 판마다 가중치 저장)로 잰 sha256
+# 이 PR 전의 main(9bc941b) 코드로 `_run_cfg()`(뇌 brain_v1, 체제 1, 시드 0 · 1, 3판, 판마다 가중치 저장)를 돌려 잰 sha256.
+# 실제 실험과 같이 별도 프로세스 · 수치 라이브러리 스레드 1(`THREAD_ENV`)에서 쟀다. CSV는 스레드 수 · 장치가 달라도 같았고,
+# 가중치 파일(dw의 마지막 비트)은 스레드 수 · CPU · OS에 따라 달랐다 (DECISIONS 22 · 27.5와 같은 성질).
 BASELINE_SHA256 = {
     "games.csv": "5b39c07bdead38f55df320d2899d60b13cd6dd0912bdd2996f5552808e4123c3",
     "lives.csv": "a735a6524a73787c1107402dd7d2c53a8b92c773f29aeb2c9b7e3b10792f5b8d",
     "flies.csv": "13d57c53efec4c742af9adfa17617fbf3c20dcb287911738b3a6077c350a9912",
-    "weights/s0_g00001.npz": "fce67dadf09caa710aa049b16dba6b42496835e997a90827253dd202e985440a",
-    "weights/s0_g00002.npz": "1fa3113d78f2b2cee2733502c984f76f4a8e0b37896964075a8d6fc9f4ea3966",
-    "weights/s0_g00003.npz": "e9bef8f4cbf894d7cb62b6f25947dbf818f0340df5f434c0d62f1182b60458e9",
-    "weights/s1_g00001.npz": "009e2b2b3d1cdee3383f7a024193eb4db856c8210d7f3e8ea3f82be0f23cac85",
-    "weights/s1_g00002.npz": "83eff54ee387cbf0867d51290e30a9f538d684dc1062f45e0b6c7e9bcdb52fb1",
-    "weights/s1_g00003.npz": "71963706d0d8242ddd0168f81cac37eb34f886d05df69703ec2c4906ca8e234d",
+    "weights/s0_g00001.npz": "8f45355f52381532854246dd9369834b07ee392af69ea3acc3634a3a326b5a91",
+    "weights/s0_g00002.npz": "0443c1835a5c0228c2c80e37b863b8dbff8f7459cbe3d60ff53fc9b12d8fadbf",
+    "weights/s0_g00003.npz": "3cb52c19b88ee6a39dd12fd97a5d8de5e3833fa630a9d4d9eac810c15d3b8c3c",
+    "weights/s1_g00001.npz": "cb7678e959baf205d3fcd8714ca652e3d19e8fd9bd660f5d67e1ae11adc0a8c1",
+    "weights/s1_g00002.npz": "e2ac7bec5bcf183806a5a930234bd45a5d34c14b378ea8ff94f460e8ac83baf6",
+    "weights/s1_g00003.npz": "886d3aeec91911501030d163fa4dc7a7f4238c2e8a9ae1b61ebcf7e2f91ac679",
 }
 # 기존 설정의 Config.hash() (이 PR 전의 main에서 잰 값)
 OLD_CONFIG_HASH = {"brain_v1": "1e3c82209c1a4337", "main_v1": "d488a2fdafc009da", "final_eval_v1": "6a0948dacb984e86"}
@@ -95,15 +99,66 @@ def tick(b: FlyBrain, o, active=True, R=None):
 
 # ---------------------------------------------------------------- 기본값 불변
 
-def test_default_brain_outputs_are_byte_identical_to_main(tmp_path):
+OLD_WEIGHT_KEYS = ["dw_masked", "rbar", "seed", "game_no", "condition", "format", "circuit_sha256",
+                   "brain_config_hash", "run_config_hash"]   # 가중치 파일의 항목과 순서 (이 PR 전)
+THREAD_ENV = {"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}   # run_parallel.child_env와 같다
+# 기준 장치(BASELINE_SHA256을 잰 곳)의 부동소수점 결과 지문: 같은 환경(THREAD_ENV)에서 잰 `_numeric_probe()`의 값
+BASELINE_PROBE = "badc818dc5b5c829da1703cd4e5584412235c0226365f5aa03bb707543c90f49"
+
+
+def _numeric_probe(circuit) -> str:
+    """이 장치의 부동소수점 결과 지문: 뇌가 쓰는 연산(J p 행렬곱, exp, einsum, 외적)을 정해진 입력에 한 결과의 sha256."""
+    from flypac.brain.flybrain import kc_drive
+
+    rng = np.random.default_rng(0)
+    p = rng.random((64, 9)) * 3
+    u = kc_drive(p, circuit)
+    w = rng.random((64, circuit.n_kc, 8))
+    h = hashlib.sha256()
+    for a in (u, np.exp(np.linspace(-9.0, 9.0, 4001)), np.exp(4.0 * rng.random(4001) - 2.0),
+              np.einsum("bi,bij->bj", u, w), u @ rng.random((circuit.n_kc, 4)), np.outer(u[0], rng.random(47)) * 1.129):
+        h.update(np.ascontiguousarray(a).tobytes())
+    return h.hexdigest()
+
+
+@pytest.fixture(scope="module")
+def default_run(tmp_path_factory):
+    """`_run_cfg()`를 별도 프로세스 · 스레드 1에서 돌린 결과 폴더와 그 프로세스의 지문 (이 파일의 `__main__`)."""
+    out = tmp_path_factory.mktemp("default") / "r"
+    done = subprocess.run([sys.executable, str(Path(__file__).resolve()), str(out)], env={**os.environ, **THREAD_ENV},
+                          capture_output=True, text=True, encoding="utf-8")
+    assert done.returncode == 0, done.stderr
+    return out, (out / "probe.txt").read_text(encoding="utf-8").strip()
+
+
+def test_default_brain_has_no_gain_state(circuit):
     assert "instinct_gain" not in CFG
-    d, runner = _run(tmp_path, "r", _run_cfg())
-    g = runner.ghosts
-    assert not g.gain_on and not hasattr(g, "k_gain") and g.dw.any()   # 학습이 실제로 일어난 실행이다
+    g = FlyBrain(CFG, 1, [0], circuit=circuit)
+    assert not g.gain_on and not any(hasattr(g, name) for name in ("k_gain", "e_k", "xo", "eta_k"))
     assert "k_gain" not in g.slot_state(0) and "k_gain" not in g.state_dict()
-    got = {name: _sha(d / name) for name in CSVS}
-    got.update({f"weights/{p.name}": _sha(p) for p in sorted((d / "weights").glob("*.npz"))})
-    assert got == BASELINE_SHA256
+
+
+def test_default_brain_csvs_and_weight_layout_are_unchanged(default_run, circuit):
+    """블록이 없는 뇌: CSV는 main과 바이트 단위로 같고, 가중치 파일은 이름 · 항목 · 순서 · 꼬리표가 그대로다 (장치 무관)."""
+    d, _ = default_run
+    assert {name: _sha(d / name) for name in CSVS} == {name: BASELINE_SHA256[name] for name in CSVS}
+    files = sorted((d / "weights").glob("*.npz"))
+    assert [f"weights/{p.name}" for p in files] == sorted(k for k in BASELINE_SHA256 if k.startswith("weights/"))
+    for p in files:
+        with np.load(p, allow_pickle=False) as z:
+            assert z.files == OLD_WEIGHT_KEYS, p.name
+            assert z["dw_masked"].dtype == np.float64 and z["dw_masked"].shape == (F, int(circuit.M.sum()))
+            assert z["dw_masked"].any()                                   # 학습이 실제로 일어난 실행이다
+            assert (int(z["format"]), str(z["condition"]), str(z["brain_config_hash"])) == (1, "regime1", CFG.hash())
+
+
+def test_default_brain_weight_files_are_byte_identical_to_main(default_run):
+    """가중치 파일의 sha256이 main과 같다. 기준 장치와 부동소수점 결과가 같은 장치에서만 성립하므로 다른 장치는 건너뛴다."""
+    d, probe = default_run
+    if sys.platform != "linux" or probe != BASELINE_PROBE:
+        pytest.skip("이 장치는 기준 sha256을 잰 장치와 부동소수점 결과(또는 OS)가 다르다: 가중치 파일의 바이트 비교는 기준 장치에서만 한다")
+    got = {f"weights/{p.name}": _sha(p) for p in sorted((d / "weights").glob("*.npz"))}
+    assert got == {k: v for k, v in BASELINE_SHA256.items() if k.startswith("weights/")}
 
 
 def test_block_with_learn_false_behaves_like_no_block(tmp_path, circuit):
@@ -423,3 +478,11 @@ def test_k_curve_reads_real_weight_files(tmp_path):
     assert res["conditions"]["b0"] is None and cv["seeds"] == [0, 1] and cv["games"] == [1, 2, 3]
     f = read_weight_file(tmp_path / "bundle" / "regime1_p1" / "weights" / weight_filename(0, 3))
     assert cv["last_k_by_seed"][0] == pytest.approx(float(f["k_gain"].mean()))
+
+
+if __name__ == "__main__":   # default_run이 별도 프로세스로 부른다: 결과 폴더와 지문을 쓴다
+    _out = Path(sys.argv[1])
+    _cfg = _run_cfg()
+    _runner = build_runner(_cfg, Recorder(_out, _cfg))
+    _runner.run()
+    (_out / "probe.txt").write_text(_numeric_probe(_runner.ghosts.circuit) + "\n", encoding="utf-8")
