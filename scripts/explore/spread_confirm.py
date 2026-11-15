@@ -1,0 +1,95 @@
+"""산개의 확인 (spread_v1을 본 뒤, 이 실행 전에 정함. 한 번만 돌린다).
+
+spread_v1(평가 시드 9600 ~ 9609)에서 흩어지기는 팩맨 점수를 오히려 올렸지만(먹힘 증가) 초파리 승률 W를 크게 올렸다
+(spread10 − solo: +0.206 [+0.180, +0.232]). 그 결과를 새 시드에서 확인한다. 조건은 spread_v1에서 W 차이가 가장 컸던 spread10 하나.
+
+신호를 바꾼다: 페로몬을 '팩맨 근처 중계'(D§29)가 아니라 '내가 여기 있다'(위치 표지)로 쓴다. 모든 초파리가 매 틱 세기 1을
+내뿜는다 (E_k = 1, 냄새 · z와 무관). 그러면 페로몬 장은 동료가 있는 곳을 가리키고, k_ph < 0이면 동료가 있는 길을 피한다
+(흩어져 다른 길로 팩맨 냄새를 쫓는다). 방출 규칙만 바꾸며 페로몬 장의 확산 · 감각 · 회로는 D§29 그대로다.
+
+  OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 uv run --extra pacman python - < coop.py   (저장소 루트에서)
+
+모든 조건은 학습 없는 뇌다 (조건 regime3의 평가 모드: η = 0, Δw = 0, 페로몬 방출은 D§29 그대로). Δw = 0이면 MBON 항이 0이라
+결정은 본능 항 g·odor만으로 정해진다. 뇌에 넘기는 냄새 관측을  k·odor + k_ph·phero  로 바꾸면 본능 항이
+    g (k·o_a + k_ph·φ_a)        (φ: 네 방향의 페로몬 관측)
+가 된다. k_ph > 0이면 동료의 페로몬 쪽으로(중계를 따라 모임), k_ph < 0이면 반대쪽으로(흩어짐). 기록 · 재생은 원래 관측을 받는다.
+
+조건: b0 (k = 1, k_ph = 0), solo (k = 10, k_ph = 0), spread10 (k = 10, k_ph = −10).
+평가 시드 9700 ~ 9709 (다른 곳에 쓰지 않는다), 칸마다 200판, 팩맨은 본 실험과 같다 (best.pt, ε = 0, cuda).
+결과 전 고정 기준 (주): (spread10 − solo)의 초파리 승률 W 짝 차이(평가 시드 10쌍, t 95% CI)가 0을 제외하고 양수이면
+"흩어지면 초파리가 더 자주 이긴다". 함께 보고: 같은 비교의 팩맨 점수 · 포획 · 먹힘, 그리고 spread10 − b0의 W.
+팩맨 점수가 오르는 것(먹힘 증가)은 spread_v1에서 이미 보았으며 판정에 쓰지 않고 그대로 보고한다.
+"""
+import sys, json, copy, dataclasses, os
+from pathlib import Path
+import numpy as np
+sys.path[:0] = ["src", "scripts"]
+import final_eval as fe
+from flypac.core.config import load_config
+from flypac.core.runner import build_runner
+from flypac.recording.recorder import Recorder, make_run_dir
+
+TEST = os.environ.get("COOP_TEST") == "1"
+SEEDS = [0, 1] if TEST else list(range(9700, 9710))
+N = 3 if TEST else 200
+CONDS = {"b0": (1.0, 0.0), "solo": (10.0, 0.0), "spread10": (10.0, -10.0)}
+ROOT = Path(os.environ.get("COOP_ROOT", "runs")); OUT = ROOT / "spread_v2"
+if (OUT / "results.json").exists():
+    sys.exit(f"멈춤: {OUT / 'results.json'}가 이미 있다")
+if not TEST:
+    fe.check_threads()
+base = load_config("configs/final_eval_v1.yaml").to_dict()
+base.update(seeds=SEEDS, n_games=N, experiment="spread_v2")
+base["run"] = {"max_loop_ticks": N * 20001}
+base["replay"] = {"keep_games": [1, 2, 3, 4, 5], "brain": True}
+if TEST:
+    base["pacman"] = {"kind": "rule_based"}; base["rule_based"] = {"danger_dist": 6, "chase_dist": 8}
+
+def wrap(brain, k, kph):
+    orig = brain.propose
+    def propose(obs, alive, views=None):
+        mix = k * np.asarray(obs.odor, float) + kph * np.asarray(obs.phero, float)
+        return orig(dataclasses.replace(obs, odor=mix), alive, views)
+    brain.propose = propose
+
+OUT.mkdir(parents=True, exist_ok=True)
+res = {"seeds": SEEDS, "n_games": N, "conditions": {}}
+for name, (k, kph) in CONDS.items():
+    d = copy.deepcopy(base); d["experiment"] = f"spread_v2_{name}"
+    cfg = fe.eval_config(d, "regime3")
+    run_dir = make_run_dir(cfg, ROOT)
+    runner = build_runner(cfg, Recorder(run_dir, cfg))
+    assert runner.ghosts.eta == 0.0 and not runner.ghosts.dw.any() and runner.phero is not None
+    wrap(runner.ghosts, k, kph)
+    runner.regime.emission = lambda o: np.ones(np.asarray(o.z).shape[0])   # 위치 표지: 모든 초파리가 세기 1
+    (run_dir / "coop.json").write_text(json.dumps({"k": k, "k_ph": kph}) + "\n", encoding="utf-8")
+    runner.run()
+    rows = fe.read_games(run_dir / "games.csv")
+    m = fe.per_seed_metrics(rows, SEEDS)
+    per = lambda col: [float(np.mean([float(r[col]) for r in rows if int(r["시드"]) == s])) for s in SEEDS]
+    res["conditions"][name] = {"run_dir": run_dir.name, "k": k, "k_ph": kph, "score": m["score"], "W": m["W"],
+                               "Nc": per("활성 후 포획 수"), "Ne": per("활성 후 먹힘 수"), "ticks": per("틱 수"), "censored": m["censored"]}
+    print(f"[{name}] 끝: {run_dir}", flush=True)
+
+def line(c, ref):
+    out = []
+    for key, nd in (("score", 1), ("W", 3), ("Nc", 3), ("Ne", 3)):
+        ci = fe.paired_ci(c[key], ref[key], 0.95)
+        out.append(f"{key} {ci['mean']:+.{nd}f} [{ci['lo']:+.{nd}f}, {ci['hi']:+.{nd}f}]{' *' if ci['excludes_zero'] else ''}")
+    return " | ".join(out), fe.paired_ci(c["score"], ref["score"], 0.95)
+
+C = res["conditions"]
+print(f"\n산개의 확인 (평가 시드 {SEEDS[0]} ~ {SEEDS[-1]}, 칸마다 {N}판). 95% CI, * = 0 제외")
+for name in ("b0", "solo"):
+    c = C[name]; print(f"  {name:9s} 평균: 점수 {np.mean(c['score']):.1f}, W {np.mean(c['W']):.3f}, 포획/판 {np.mean(c['Nc']):.3f}, 먹힘/판 {np.mean(c['Ne']):.3f}, 중단 {sum(c['censored'])}")
+print("  [solo − b0]  " + line(C["solo"], C["b0"])[0])
+print("  --- 조건 − solo (기준 비교) ---")
+for name, c in C.items():
+    if name in ("b0", "solo"): continue
+    txt, s = line(c, C["solo"]); c["vs_solo"] = s
+    w = fe.paired_ci(c["W"], C["solo"]["W"], 0.95); c["W_vs_solo"] = w; c["coop"] = bool(w["lo"] > 0)
+    wb = fe.paired_ci(c["W"], C["b0"]["W"], 0.95); c["W_vs_b0"] = wb
+    print(f"  {name} − b0 의 W: {wb['mean']:+.3f} [{wb['lo']:+.3f}, {wb['hi']:+.3f}]")
+    print(f"  {name:9s} " + txt + f"   → 기준(W) 충족: {'예' if c['coop'] else '아니오'}")
+(OUT / "results.json").write_text(json.dumps(res, ensure_ascii=False, indent=1, default=float) + "\n", encoding="utf-8")
+print(f"기록: {OUT / 'results.json'}")
