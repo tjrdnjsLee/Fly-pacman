@@ -22,6 +22,14 @@ w가 필요하면(시각화 등) w0 + dw로 만든다. 저장 · 재개도 dw만
     π_a ∝ exp(β (x_a + k_gain g xo_a)),   s = β g (xo_a* - Σ_b π_b xo_b)
     확정 1번: k_gain ← clip(k_gain + η_k (R_n - R̄) e_k, k_min, k_max),  확정 2번: e_k ← γ e_k + s
 `freeze_synapses`이면 η = 0 (Δw = 0). 조건 b0와 평가 모드는 η_k = 0.
+
+페로몬 본능 항의 세기 k_ph (DECISIONS 41.3, 선택 블록 `phero_gain`, `instinct_gain`이 켜진 뇌에만). 블록이 없거나
+`enabled: false`이면 위 그대로다 (바이트 단위). 켜면:
+    xph_a ← (1-κ) xph_a + φ_a   (φ: 페로몬 관측),   π_a ∝ exp(β (x_a + k_gain g xo_a + k_ph g xph_a))
+    확정 1번: k_ph ← clip(k_ph + η_ph (R_n - R̄) e_ph, kph_min, kph_max),  확정 2번: e_ph ← γ e_ph + β g (xph_a* - Σ_b π_b xph_b)
+xph는 xo와, e_ph는 e_k와 같은 곳에서 0이 된다. 조건 b0 · 평가 모드 · `learn: false`는 η_ph = 0.
+`dry_run`이면 k_ph를 바꾸지 않고 G_ph += (R_n - R̄) e_ph만 더한다 (η_ph를 곱하지 않는다. 규칙이 적용될 때만: learn 참,
+b0 · 평가 모드 아님). e_ph와 R̄는 정상대로 갱신한다.
 """
 
 from __future__ import annotations
@@ -250,6 +258,19 @@ class FlyBrain(GhostController):
             self.eta_k = 0.0 if (condition == B0 or self.evaluate) else float(G["eta_k"])
             if bool(G["freeze_synapses"]):
                 self.eta = 0.0
+        # 페로몬 본능 항 (DECISIONS 41.3). 블록이 없거나 enabled가 거짓이면 아래 상태를 만들지 않는다
+        P = cfg.get("phero_gain")
+        self.ph_on = bool(P is not None and P["enabled"])
+        if self.ph_on:
+            if not self.gain_on:
+                raise ValueError("phero_gain은 instinct_gain이 켜진 뇌에만 쓸 수 있다 (DECISIONS 41.3)")
+            self.kph_init, self.kph_min, self.kph_max = float(P["kph_init"]), float(P["kph_min"]), float(P["kph_max"])
+            if not self.kph_min <= self.kph_init <= self.kph_max:
+                raise ValueError(f"phero_gain: kph_min ≤ kph_init ≤ kph_max가 아니다 "
+                                 f"({self.kph_min}, {self.kph_init}, {self.kph_max})")
+            self.ph_learn = bool(P["learn"]) and condition != B0 and not self.evaluate
+            self.eta_ph = float(P["eta_ph"]) if self.ph_learn else 0.0
+            self.dry_run = bool(P["dry_run"])
 
         n_act = A.N_ACTIONS
         size = np.bincount(c.mbon_bundle, minlength=n_act)
@@ -273,6 +294,11 @@ class FlyBrain(GhostController):
             self.k_gain = np.full((B, F), self.k_init)   # 본능 세기 (w처럼 판 · 목숨을 넘어 유지)
             self.e_k = np.zeros((B, F))                  # k_gain의 흔적 (e와 같은 곳에서 0)
             self.xo = np.zeros((B, F, n_act))            # 누적 냄새 (x와 같은 곳에서 0). 이때 x는 MBON 항만 누적한다
+        if self.ph_on:
+            self.kph_gain = np.full((B, F), self.kph_init)   # 페로몬 본능 세기 (k_gain처럼 판 · 목숨을 넘어 유지)
+            self.e_ph = np.zeros((B, F))                     # k_ph의 흔적 (e_k와 같은 곳에서 0)
+            self.xph = np.zeros((B, F, n_act))               # 누적 페로몬 관측 (xo와 같은 곳에서 0)
+            self.G_ph = np.zeros((B, F))                     # 헛돌기의 갱신량 합 Σ (R_n - R̄) e_ph (초기화하지 않는다)
         self._pi = np.zeros((B, F, n_act))
         self._a = np.full((B, F), -1, dtype=np.int64)
         self._has_prop = np.zeros((B, F), dtype=bool)
@@ -329,6 +355,8 @@ class FlyBrain(GhostController):
         if self.gain_on:
             self.x[rows] = (1.0 - self.kappa) * self.x[rows] + m
             self.xo[rows] = (1.0 - self.kappa) * self.xo[rows] + odor
+            if self.ph_on:
+                self.xph[rows] = (1.0 - self.kappa) * self.xph[rows] + np.asarray(obs.phero[rows], dtype=np.float64)
         else:
             self.x[rows] = (1.0 - self.kappa) * self.x[rows] + m + self.g * odor
         self.h[rows] = (1.0 - self.kappa) * self.h[rows] + kv
@@ -340,6 +368,8 @@ class FlyBrain(GhostController):
                 if not legal.any():
                     raise ValueError(f"게임 {b} 초파리 {f}: decide가 참인데 합법 행동이 없다")
                 xa = self.x[b, f] + self.k_gain[b, f] * self.g * self.xo[b, f] if self.gain_on else self.x[b, f]
+                if self.ph_on:   # k_ph = 0이면 + 0.0이라 블록이 없는 뇌와 같은 값이다
+                    xa = xa + self.kph_gain[b, f] * self.g * self.xph[b, f]
                 s = np.where(legal, self.beta * xa, -np.inf)
                 s = np.exp(s - s[legal].max())
                 pi = s / s.sum()
@@ -361,6 +391,12 @@ class FlyBrain(GhostController):
         if self.gain_on and self.eta_k != 0.0:
             k = self.k_gain[b, f] + self.eta_k * (self.Rn[b, f] - self.rbar[b, f]) * self.e_k[b, f]
             self.k_gain[b, f] = min(max(k, self.k_min), self.k_max)
+        if self.ph_on and self.ph_learn:
+            if self.dry_run:             # 헛돌기: k_ph는 그대로, 갱신량만 (η_ph를 곱하지 않는다)
+                self.G_ph[b, f] += (self.Rn[b, f] - self.rbar[b, f]) * self.e_ph[b, f]
+            elif self.eta_ph != 0.0:
+                k = self.kph_gain[b, f] + self.eta_ph * (self.Rn[b, f] - self.rbar[b, f]) * self.e_ph[b, f]
+                self.kph_gain[b, f] = min(max(k, self.kph_min), self.kph_max)
         self.rbar[b, f] = (1.0 - self.alpha_rbar) * self.rbar[b, f] + self.alpha_rbar * self.Rn[b, f]
 
     def commit(self, committed: np.ndarray, active: np.ndarray) -> None:
@@ -388,9 +424,15 @@ class FlyBrain(GhostController):
                     xo = self.xo[b, f]
                     score = self.beta * self.g * (xo[self._a[b, f]] - float(self._pi[b, f] @ xo))
                     self.e_k[b, f] = self.gamma * self.e_k[b, f] + score
+                if self.ph_on:                                             # s_ph = β g (xph_a* - Σ_b π_b xph_b)
+                    xph = self.xph[b, f]
+                    sph = self.beta * self.g * (xph[self._a[b, f]] - float(self._pi[b, f] @ xph))
+                    self.e_ph[b, f] = self.gamma * self.e_ph[b, f] + sph
             self.x[b, f] = 0.0                                             # 3
             if self.gain_on:
                 self.xo[b, f] = 0.0
+            if self.ph_on:
+                self.xph[b, f] = 0.0
             self.h[b, f] = 0.0
             self.Rn[b, f] = 0.0
         self._has_prop[:] = False
@@ -429,6 +471,8 @@ class FlyBrain(GhostController):
         self.e[mask] = 0.0
         if self.gain_on:
             self.e_k[mask] = 0.0
+        if self.ph_on:
+            self.e_ph[mask] = 0.0
         self.Rn[mask] = 0.0
         self._active[mask] = True
 
@@ -438,6 +482,8 @@ class FlyBrain(GhostController):
         self.h[mask] = 0.0
         if self.gain_on:
             self.xo[mask] = 0.0
+        if self.ph_on:
+            self.xph[mask] = 0.0
 
     def flush_learning(self, mask: np.ndarray) -> None:
         """확정 1번만 한 번 (마지막 commit의 활성 값으로). 새 결정은 없다."""
@@ -454,6 +500,9 @@ class FlyBrain(GhostController):
         if self.gain_on:
             self.xo[mask] = 0.0
             self.e_k[mask] = 0.0
+        if self.ph_on:
+            self.xph[mask] = 0.0
+            self.e_ph[mask] = 0.0
         self._has_prop[mask] = False
         self._active[mask] = False
 
@@ -474,7 +523,26 @@ class FlyBrain(GhostController):
         }
         if self.gain_on:  # 꺼져 있으면 쓰지 않는다 (기존 저장과 같다)
             state["k_gain"] = self.k_gain.copy()
+        if self.ph_on:
+            state["kph_gain"] = self.kph_gain.copy()
         return state
+
+    def _checked_kph_gain(self, state: dict, shape: tuple) -> np.ndarray | None:
+        """저장된 상태의 kph_gain을 확인해 돌려준다 (꺼진 뇌는 None). k_gain과 같은 방식 (DECISIONS 41.3)."""
+        if not self.ph_on:
+            if "kph_gain" in state:
+                raise ValueError("저장된 상태에 kph_gain이 있는데 이 뇌는 페로몬 본능 세기를 쓰지 않는다 (phero_gain 꺼짐)")
+            return None
+        if "kph_gain" not in state:
+            raise ValueError("저장된 상태에 kph_gain이 없다: phero_gain이 켜진 뇌는 kph_gain이 필요하다")
+        k = np.asarray(state["kph_gain"], dtype=np.float64).copy()
+        if k.shape != shape:
+            raise ValueError(f"kph_gain의 모양 {k.shape} != {shape}")
+        if not (np.isfinite(k).all() and (k >= self.kph_min).all() and (k <= self.kph_max).all()):
+            raise ValueError(f"kph_gain이 범위 [{self.kph_min}, {self.kph_max}] 밖이다")
+        if self.condition == B0 and (k != self.kph_init).any():
+            raise ValueError("B0는 kph_gain = kph_init에서 시작한다: 학습된 kph_gain을 불러온 정책은 B0가 아니다 (DECISIONS 12.4)")
+        return k
 
     def _checked_k_gain(self, state: dict, shape: tuple) -> np.ndarray | None:
         """저장된 상태의 k_gain을 확인해 돌려준다 (꺼진 뇌는 None). 켜졌는데 없거나, 꺼졌는데 있으면 ValueError."""
@@ -504,6 +572,8 @@ class FlyBrain(GhostController):
         }
         if self.gain_on:
             state["k_gain"] = self.k_gain[b].copy()
+        if self.ph_on:
+            state["kph_gain"] = self.kph_gain[b].copy()
         return state
 
     def load_slot_state(self, b: int, state: dict) -> None:
@@ -526,10 +596,13 @@ class FlyBrain(GhostController):
         if self.condition == B0 and (dw != 0).any():
             raise ValueError("B0는 w = w0에서 시작한다: 학습된 w를 불러온 정책은 B0가 아니다 (DECISIONS 12.4)")
         k_gain = self._checked_k_gain(state, (self.F,))
+        kph_gain = self._checked_kph_gain(state, (self.F,))
         self.dw[b] = dw
         self.rbar[b] = rbar
         if k_gain is not None:
             self.k_gain[b] = k_gain
+        if kph_gain is not None:
+            self.kph_gain[b] = kph_gain
         only = np.zeros(self.B, dtype=bool)
         only[b] = True
         self.reset_life(only)
@@ -564,10 +637,13 @@ class FlyBrain(GhostController):
         if self.condition == B0 and (dw != 0).any():
             raise ValueError("B0는 w = w0에서 시작한다: 학습된 w를 불러온 η = 0 정책은 B0가 아니다 (지시서 2.5)")
         k_gain = self._checked_k_gain(state, (self.B, self.F))
+        kph_gain = self._checked_kph_gain(state, (self.B, self.F))
         self.dw = dw
         self.rbar = np.asarray(state["rbar"], dtype=np.float64).copy()
         if k_gain is not None:
             self.k_gain = k_gain
+        if kph_gain is not None:
+            self.kph_gain = kph_gain
         self.rngs.load_state_dict(state["rngs"])
         self.config_changes = changes
         self.reset_life(np.ones(self.B, dtype=bool))

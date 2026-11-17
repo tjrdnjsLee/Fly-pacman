@@ -7,6 +7,11 @@
 저장 판마다 시드 평균 · 표준편차를, 마지막 판에는 k̄ − 1의 평균과 t 95% 신뢰구간(단위 = 시드)을 낸다.
 가중치 파일이 없는 조건(B0는 저장하지 않는다, 26.1)은 그 사실만 적는다. 결과는 표준 출력과 묶음의
 `k_curve.md` · `k_curve.json`에 쓴다.
+
+  k_curve.py <학습 묶음> --key kph_gain     페로몬 본능 세기 k_ph의 곡선 (DECISIONS 41.6 · 41.7)
+
+`--key kph_gain`이면 같은 계산을 가중치 파일의 `kph_gain`으로 하고, 기준값은 kph_init = 0 (마지막 판의 k̄_ph − 0),
+결과는 `kph_curve.md` · `kph_curve.json`에 쓴다. 옵션이 없으면 위 그대로다.
 """
 
 from __future__ import annotations
@@ -22,6 +27,8 @@ import yaml
 from flypac.recording.weights import parse_weight_filename
 
 K_REF = 1.0       # DECISIONS 38.4 · 38.5: "마지막 판의 k̄ − 1" (k_init = 1)
+KEYS = {"k_gain": K_REF, "kph_gain": 0.0}   # 키 → 기준값. kph_gain은 41.7의 "k̄_ph의 신뢰구간이 0을 제외"
+OUT_STEM = {"k_gain": "k_curve", "kph_gain": "kph_curve"}
 CI_LEVEL = 0.95   # DECISIONS 38.4 · 38.5: t 95% 신뢰구간
 
 
@@ -29,15 +36,16 @@ class CurveInputError(ValueError):
     """입력이 맞지 않는다: 멈춘다."""
 
 
-def read_k_gain(path: Path) -> np.ndarray:
-    """가중치 파일에서 k_gain (F,)만 읽는다. 없으면 CurveInputError."""
+def read_k_gain(path: Path, key: str = "k_gain") -> np.ndarray:
+    """가중치 파일에서 key (기본 k_gain) (F,)만 읽는다. 없으면 CurveInputError."""
     with np.load(Path(path), allow_pickle=False) as z:
-        if "k_gain" not in z.files:
-            raise CurveInputError(f"{path}: k_gain이 없다 (본능 세기를 배운 실행의 가중치 파일이 아니다)")
-        return np.asarray(z["k_gain"], dtype=np.float64)
+        if key not in z.files:
+            what = "본능 세기를 배운" if key == "k_gain" else "페로몬 본능 세기(phero_gain)를 쓴"
+            raise CurveInputError(f"{path}: {key}이 없다 ({what} 실행의 가중치 파일이 아니다)")
+        return np.asarray(z[key], dtype=np.float64)
 
 
-def collect(bundle: Path) -> dict:
+def collect(bundle: Path, key: str = "k_gain") -> dict:
     """{조건: {시드: {판: 초파리 평균 k}}}. 가중치 파일이 없는 조건은 빈 사전."""
     out: dict[str, dict[int, dict[int, float]]] = {}
     dirs = sorted(p.parent for p in Path(bundle).glob("*/config.yaml"))
@@ -53,7 +61,7 @@ def collect(bundle: Path) -> dict:
             seed, game = parsed
             if game in per_seed.setdefault(seed, {}):
                 raise CurveInputError(f"{cond}: 시드 {seed} 판 {game}의 가중치 파일이 두 번 있다")
-            per_seed[seed][game] = float(read_k_gain(p).mean())
+            per_seed[seed][game] = float(read_k_gain(p, key).mean())
     return out
 
 
@@ -89,16 +97,24 @@ def curve(per_seed: dict[int, dict[int, float]], *, k_ref: float = K_REF, level:
             "last_minus_ref": mean_ci([v - k_ref for v in final], level)}
 
 
-def build(bundle: Path) -> dict:
-    data = collect(bundle)
-    return {"k_ref": K_REF, "ci_level": CI_LEVEL,
-            "conditions": {c: (curve(ps) if ps else None) for c, ps in data.items()}}
+def build(bundle: Path, key: str = "k_gain") -> dict:
+    if key not in KEYS:
+        raise CurveInputError(f"--key는 {list(KEYS)} 중 하나다: {key!r}")
+    data = collect(bundle, key)
+    ref = KEYS[key]
+    res = {"k_ref": ref, "ci_level": CI_LEVEL,
+           "conditions": {c: (curve(ps, k_ref=ref) if ps else None) for c, ps in data.items()}}
+    if key != "k_gain":   # 기본 출력은 이전과 같게 둔다
+        res = {"key": key, **res}
+    return res
 
 
 def render(res: dict) -> str:
     lvl = int(round(res["ci_level"] * 100))
-    L = ["# 본능 세기 k의 곡선 (DECISIONS 38.4)", "",
-         "- 가중치 파일의 `k_gain`만 읽었다. 시드마다 초파리 4마리의 평균을 먼저 내고, 시드 사이의 평균 · 표준편차를 낸다.",
+    key = res.get("key", "k_gain")
+    title = "# 본능 세기 k의 곡선 (DECISIONS 38.4)" if key == "k_gain" else "# 페로몬 본능 세기 k_ph의 곡선 (DECISIONS 41.6 · 41.7)"
+    L = [title, "",
+         f"- 가중치 파일의 `{key}`만 읽었다. 시드마다 초파리 4마리의 평균을 먼저 내고, 시드 사이의 평균 · 표준편차를 낸다.",
          f"- 마지막 판의 k̄ − {res['k_ref']:g}: 평균과 {lvl}% 신뢰구간 (t 분포, 단위 = 시드).", ""]
     L += ["## 마지막 판", "", f"| 조건 | 판 | 시드 수 | k̄ − {res['k_ref']:g} 평균 | {lvl}% 신뢰구간 | 0 제외 |", "|---|---|---|---|---|---|"]
     for c, cv in res["conditions"].items():
@@ -118,18 +134,27 @@ def render(res: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("사용법: k_curve.py <학습 묶음>", file=sys.stderr)
+    args, key = list(argv[1:]), "k_gain"
+    if "--key" in args:
+        i = args.index("--key")
+        if i + 1 >= len(args):
+            args = []
+        else:
+            key = args[i + 1]
+            del args[i:i + 2]
+    if len(args) != 1 or key not in KEYS:
+        print("사용법: k_curve.py <학습 묶음> [--key k_gain|kph_gain]", file=sys.stderr)
         return 2
-    bundle = Path(argv[1])
+    bundle = Path(args[0])
     try:
-        res = build(bundle)
+        res = build(bundle, key)
     except CurveInputError as e:
         print(f"멈춤: {e}", file=sys.stderr)
         return 1
-    (bundle / "k_curve.json").write_text(json.dumps(res, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    stem = OUT_STEM[key]
+    (bundle / f"{stem}.json").write_text(json.dumps(res, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     text = render(res)
-    (bundle / "k_curve.md").write_text(text, encoding="utf-8")
+    (bundle / f"{stem}.md").write_text(text, encoding="utf-8")
     print(text)
     return 0
 

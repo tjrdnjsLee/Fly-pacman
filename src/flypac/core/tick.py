@@ -10,6 +10,12 @@
 
 냄새 장(odor=None), 기록(recorder=None), 체제 보상(regime=None)은 인자로 끈다 (PPO 학습 환경용).
 끄면 냄새 · 페로몬 관측은 0이고, 조종기에는 보상 0을 준다.
+
+페로몬 관측 선택 `phero_view` (DECISIONS 41.3): `total`(기본)은 전체 장 c를 읽는다. `others` · `self`이면 초파리 f의
+방출만 담은 장 c^(f)를 `phero_split`(같은 D · λ의 Field, B × F행, 행 b·F + f)에 따로 풀고, 초파리 f의 관측을
+c^others_f = Σ_{j≠f} c^(j) (더하기로 만든다) 또는 c^self_f = c^(f)에서 같은 읽기(sense)로 얻는다. 초기화 · step의
+마스크 시점은 전체 장과 같다. 뇌 · 방출 규칙 · 기록의 obs는 바뀐 관측이고, 재생의 phero_field는 전체 장 그대로다.
+`total`이면 초파리별 장을 만들지 않는다.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from flypac.core.types import FlyObs, GameView
 from flypac.senses.sense import sense
 
 _END_KINDS = (Kind.LIFE_LOST, Kind.GAME_OVER)
+PHERO_VIEWS = ("total", "others", "self")
 
 
 def _slice_obs(obs: FlyObs, b: int) -> FlyObs:
@@ -58,7 +65,8 @@ class TickCore:
 
     def __init__(self, map, game, engine_rngs: GameRngs, ghosts, *, condition: str, pacman=None,
                  odor=None, phero=None, regime=None, recorder=None, c0: float = 1.0, s_odor: float = 0.0,
-                 reset_odor_on_life_loss: bool = False, n_games: int | None = None, keep_games=()):
+                 reset_odor_on_life_loss: bool = False, n_games: int | None = None, keep_games=(),
+                 phero_view: str = "total", phero_split=None):
         if not isinstance(engine_rngs, GameRngs) or len(engine_rngs) != game.B:
             raise TypeError("engine_rngs에는 길이 B의 GameRngs(core.rng.game_rngs(seeds, 'engine'))를 넘긴다")
         if engine_rngs.purpose != "engine":
@@ -68,6 +76,14 @@ class TickCore:
         self.map, self.game, self.engine_rngs = map, game, engine_rngs
         self.ghosts, self.pacman = ghosts, pacman
         self.odor, self.phero, self.regime, self.recorder = odor, phero, regime, recorder
+        self.phero_view = str(phero_view)
+        if self.phero_view not in PHERO_VIEWS:
+            raise ValueError(f"phero.view는 {PHERO_VIEWS} 중 하나다: {self.phero_view!r} (DECISIONS 41.3)")
+        if (self.phero_view == "total") != (phero_split is None):
+            raise ValueError("phero.view가 total이 아니면 초파리별 페로몬 장(phero_split)이 필요하고, total이면 두지 않는다")
+        if phero_split is not None and phero is None:
+            raise ValueError("phero.view(others · self)에는 페로몬 장이 필요하다 (체제 3)")
+        self.phero_split = phero_split
         self.condition = str(condition)
         self.pass_views = self.condition == "b1"  # 원칙 2: views는 B1 조건에서만 조종기에 넘긴다
         self.B = game.B
@@ -116,6 +132,8 @@ class TickCore:
             self.odor.reset(every)
         if self.phero is not None:
             self.phero.reset(every)
+        if self.phero_split is not None:
+            self.phero_split.reset(np.repeat(every, self.F))
         if self.pacman is not None:
             self.pacman.reset(every)
         self.ghosts.reset_life(every)
@@ -159,7 +177,10 @@ class TickCore:
         views = game.views()                                              # 4 (다시 만든다)
         odor_c = self.odor.c if self.odor is not None else np.zeros((B, self.map.nbr.shape[0]))
         phero_c = self.phero.c if self.phero is not None else np.zeros_like(odor_c)
-        obs = sense(odor_c, phero_c, views, game.decision_info(), self.c0, nbr=self.map.nbr)  # 5
+        info = game.decision_info()
+        obs = sense(odor_c, phero_c, views, info, self.c0, nbr=self.map.nbr)  # 5
+        if self.phero_split is not None:
+            obs = replace(obs, phero=self._split_view(odor_c, views, info))
         if self.recorder is not None:
             # 한 프레임의 views, obs, 냄새 장이 같은 순간이 되게 5번의 값을 복사해 둔다 (10번에서 장이 바뀐다)
             frame_odor, frame_phero = odor_c.copy(), phero_c.copy()
@@ -195,11 +216,19 @@ class TickCore:
             self.odor.step(S, step_mask)
         if self.phero is not None:
             Sp = np.zeros_like(self.phero.c)
+            Sp_em = []
             for b in range(B):
                 em = self.regime.emission(_slice_obs(obs, b))
+                Sp_em.append(em)
                 for k in range(F):
                     Sp[b, now[b].fly_cell[k]] += em[k]
             self.phero.step(Sp, step_mask)
+            if self.phero_split is not None:   # 초파리 k의 방출은 행 b·F + k에만 (Σ_k = Sp)
+                Ss = np.zeros((B, F, Sp.shape[1]))
+                for b in range(B):
+                    for k in range(F):
+                        Ss[b, k, now[b].fly_cell[k]] = Sp_em[b][k]
+                self.phero_split.step(Ss.reshape(B * F, -1), np.repeat(step_mask, F))
 
         R = np.zeros((B, F))                                              # 11
         if self.regime is not None:
@@ -224,6 +253,22 @@ class TickCore:
         self._end_of_tick(events, running)                                # 13
         ends, over, started = self._ended
         return TickOut(events, now, running, ends, over, started, fly_act, moved, committed)
+
+    def _split_view(self, odor_c, views, info) -> np.ndarray:
+        """초파리별 장에서 관측 view의 페로몬 (B,F,4). 초파리 f의 값은 장 c^view_f를 sense로 읽은 결과의 f번 열이다."""
+        B, F = self.B, self.F
+        cs = self.phero_split.c.reshape(B, F, -1)
+        out = np.zeros((B, F, 4))
+        for f in range(F):
+            if self.phero_view == "self":
+                cv = cs[:, f]
+            else:   # others: 빼기가 아니라 더하기 (음수 방지)
+                cv = np.zeros_like(cs[:, 0])
+                for j in range(F):
+                    if j != f:
+                        cv = cv + cs[:, j]
+            out[:, f] = sense(odor_c, cv, views, info, self.c0, nbr=self.map.nbr).phero[:, f]
+        return out
 
     # ---- 종료 처리 (TRD 6.2) ----
     def _end_of_tick(self, events: list[list[Event]], running: np.ndarray) -> None:
@@ -262,6 +307,8 @@ class TickCore:
                 self.odor.reset(field_reset)
             if self.phero is not None:
                 self.phero.reset(field_reset)
+            if self.phero_split is not None:
+                self.phero_split.reset(np.repeat(field_reset, self.F))
         more = over if self.n_games is None else over & (self.game_no < self.n_games)
         retired = over & ~more  # 모든 판을 끝낸 칸: 새 판은 시작하지 않고 학습 활성만 내린다
         self.finished |= retired
