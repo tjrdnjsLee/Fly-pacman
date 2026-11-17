@@ -1,0 +1,43 @@
+# 초파리 뇌 설정 + 페로몬 본능 항 (DECISIONS 41.3). configs/brain_k_v1.yaml에서 instinct_gain의 값과 phero_gain 블록만
+# 다르다 (circuit · kc · learn은 값을 바꾸지 않았다. learn의 해시는 회로 meta와 대조된다). 이 파일은 관리자 소유다.
+# 단계 1의 설정은 k_ph를 배우지 않는다 (측정 0 · 관문 5용). 학습 설정은 관문 5 뒤에 만든다 (41.5 · 41.6).
+# 실행 설정에서 ghosts: {kind: flybrain, config: configs/brain_kph_v1.yaml}로 부른다.
+
+circuit:
+  file: data/circuit/mb_v1.npz     # 실험 회로. 뇌는 이 파일을 읽는다 (DECISIONS 25.1). meta는 같은 이름의 .meta.json
+  raw: data/circuit/raw/mb_raw_v1.npz        # 원본 회로 (meta 대조용)
+  assign: configs/circuit_assign_v1.yaml     # 분기 · 페로몬 사구체 · MBON 묶음 탐색 설정 (meta 대조용)
+  seed: 0          # 확정 (작은 과제 A~D 통과, DECISIONS 19절·19.6). 바꾸면 18절 규칙으로 하이퍼파라미터를 다시 잰다
+
+kc:
+  rho: 0.05        # 상위 k 비율, k = ceil(rho * N_KC). DECISIONS 17.3 (ρ = 0.05 먼저, 과제 C 실패 시 0.10)
+  theta: 0.0       # KC 문턱 θ = c · ū_ref (c = 0). DECISIONS 17.3
+
+# 하이퍼파라미터: 측정 결과 반영 (DECISIONS 18.7, 규칙은 18절). 배정 시드 0 회로, ρ = 0.05, θ = 0에서 측정 시드 5000 ~ 5004로
+# 잰 값이다. 작은 과제의 성공률로 고르지 않았다. 회로 · ρ · θ를 바꾸면 18절의 규칙으로 다시 잰다.
+learn:
+  kappa: 0.2        # 증거 누설 κ
+  g: 0.03747        # 본능 이득 g (외측뿔 모델 항). 채널 이득 α_c와 다른 기호
+  beta: 4           # softmax 역온도 β
+  eta: 1.129        # 학습률 η (조건 b0은 0으로 강제)
+  alpha_rbar: 0.01  # 기준 보상 R̄ 갱신률 α
+  gamma: 0.9        # 흔적 감쇠 γ (TRD 10.8)
+
+# 본능 세기 (DECISIONS 38.3). k는 배우지 않고 10에 고정한다 (39절의 solo와 같은 값)
+instinct_gain:
+  learn: true
+  eta_k: 0.0             # k는 배우지 않는다 (고정)
+  k_init: 10.0           # 39절의 solo와 같은 값
+  k_min: 0.0
+  k_max: 50.0
+  freeze_synapses: true
+
+# 페로몬 본능 세기 k_ph (DECISIONS 41.3). 블록이 없거나 enabled가 false이면 뇌는 brain_k_v1과 같은 식으로 돈다
+phero_gain:
+  enabled: true
+  learn: false           # 단계 1의 설정은 배우지 않는다. 학습 설정은 관문 5 뒤에 만든다
+  eta_ph: 0.0
+  kph_init: 0.0
+  kph_min: -50.0
+  kph_max: 50.0
+  dry_run: false

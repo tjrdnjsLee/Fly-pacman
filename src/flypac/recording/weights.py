@@ -58,6 +58,8 @@ class WeightWriter:
         tmp = path.with_name(path.name + ".tmp")
         # k_gain은 본능 세기를 배우는 뇌만 낸다 (DECISIONS 38.3). 없으면 파일은 이전과 바이트 단위로 같다
         extra = {"k_gain": st["k_gain"]} if "k_gain" in st else {}
+        if "kph_gain" in st:   # 페로몬 본능 세기 (DECISIONS 41.3). phero_gain이 켜진 뇌만 낸다
+            extra["kph_gain"] = st["kph_gain"]
         with open(tmp, "wb") as fh:
             np.savez(fh, dw_masked=st["dw_masked"], rbar=st["rbar"], seed=np.int64(self.seeds[b]),
                      game_no=np.int64(game_no), condition=np.str_(st["condition"]), format=np.int64(st["format"]),
@@ -71,6 +73,8 @@ def read_weight_file(path) -> dict:
     """가중치 파일을 사전으로 읽는다 (FlyBrain.load_slot_state에 그대로 넘길 수 있다)."""
     with np.load(Path(path), allow_pickle=False) as z:
         extra = {"k_gain": z["k_gain"]} if "k_gain" in z.files else {}   # 본능 세기를 배운 실행의 파일에만 있다
+        if "kph_gain" in z.files:   # phero_gain이 켜진 뇌의 파일에만 있다 (DECISIONS 41.3)
+            extra["kph_gain"] = z["kph_gain"]
         return {
             "dw_masked": z["dw_masked"], "rbar": z["rbar"], "seed": int(z["seed"]), "game_no": int(z["game_no"]),
             "condition": str(z["condition"]), "format": int(z["format"]),

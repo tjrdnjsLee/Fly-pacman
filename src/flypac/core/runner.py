@@ -50,14 +50,15 @@ class Runner(TickCore):
     """실험 실행기: TickCore에 부품 조립 · views 규칙 검사 · 무한 루프 감시 · 기록기 닫기를 더한다."""
 
     def __init__(self, cfg, map, game: VecGame, engine_rngs, odor: Field, phero: Field | None, pacman, ghosts,
-                 regime, recorder):
+                 regime, recorder, phero_split: Field | None = None):
         replay = cfg.get("replay", {})
         super().__init__(map, game, engine_rngs, ghosts, condition=str(cfg.condition), pacman=pacman,
                          odor=odor, phero=phero, regime=regime, recorder=recorder,
                          c0=float(cfg.odor.c0), s_odor=float(cfg.odor.s),
                          reset_odor_on_life_loss=bool(cfg.odor.reset_on_life_loss),
                          n_games=int(cfg.n_games),
-                         keep_games=replay.get("keep_games", []) if replay else [])
+                         keep_games=replay.get("keep_games", []) if replay else [],
+                         phero_view=phero_view(cfg), phero_split=phero_split)
         self.cfg = cfg
 
     # ---- 초기화 ----
@@ -93,6 +94,12 @@ class Runner(TickCore):
 LEARNING_CONDITIONS = ("regime1", "regime2", "regime3")  # 가중치를 저장하는 조건 (B0 · B1은 학습이 없다)
 
 
+def phero_view(cfg) -> str:
+    """설정의 phero.view (DECISIONS 41.3). 키가 없으면 total."""
+    block = cfg.get("phero", None)
+    return str(block["view"]) if block is not None and "view" in block else "total"
+
+
 def build_runner(cfg, recorder=None) -> Runner:
     """설정에서 부품을 만들어 Runner를 돌려준다. 기록기를 주지 않으면 NullRecorder."""
     amap = load_original()
@@ -110,6 +117,9 @@ def build_runner(cfg, recorder=None) -> Runner:
     odor = Field(amap, float(cfg.odor.D), float(cfg.odor.lam))
     condition = cfg.condition
     phero = Field(amap, float(cfg.phero.D), float(cfg.phero.lam)) if condition == "regime3" else None
+    # 초파리별 페로몬 장 (DECISIONS 41.3): view가 total이 아닐 때만 만든다. 같은 D · λ, B × F행
+    phero_split = (Field(amap, float(cfg.phero.D), float(cfg.phero.lam))
+                   if phero is not None and phero_view(cfg) != "total" else None)
     pacman_kind = cfg.pacman.kind
     if pacman_kind == "rule_based":
         pacman = RuleBasedPacman(amap, cfg, game_rngs(seeds, "pacman"))
@@ -142,7 +152,8 @@ def build_runner(cfg, recorder=None) -> Runner:
     else:
         raise NotImplementedError(f"ghosts.kind={cfg.ghosts.kind}")
     regime = make_regime(cfg)
-    runner = Runner(cfg, amap, game, engine_rngs, odor, phero, pacman, ghosts, regime, recorder or NullRecorder())
+    runner = Runner(cfg, amap, game, engine_rngs, odor, phero, pacman, ghosts, regime, recorder or NullRecorder(),
+                    phero_split=phero_split)
     if "weights" in cfg and cfg.ghosts.kind == "flybrain" and str(condition) in LEARNING_CONDITIONS:
         # 가중치 저장 (DECISIONS 26.1): 학습 조건에서만. B0 · B1은 저장할 학습이 없다
         from flypac.recording.weights import WeightWriter
