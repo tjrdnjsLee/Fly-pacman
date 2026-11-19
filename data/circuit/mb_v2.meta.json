@@ -1,0 +1,181 @@
+{
+ "format": "mb_v2",
+ "status": "실험용 확정 (작은 과제 A~D 통과)",
+ "generator": "make_experiment_circuit_v2",
+ "created_at": "2026-11-19T09:42:03+00:00",
+ "dataset": "hemibrain:v1.2.1",
+ "raw_file": "data/circuit/raw/mb_raw_v2.npz",
+ "raw_sha256": "ff07c6880e64024fc242ffb0e3bbb859b387ebf9d83b4fc0a34e4a681c9da6d7",
+ "assign_file": "configs/circuit_assign_v2.yaml",
+ "assign_config_hash": "19c8d79aaf2cd705",
+ "assign_seed": 0,
+ "branch": "G",
+ "brain_config": "configs/brain_v2.yaml",
+ "kc": {
+  "rho": 0.05,
+  "theta": 0.0
+ },
+ "learn": {
+  "kappa": 0.2,
+  "g": 0.03747,
+  "beta": 4,
+  "eta": 1.106,
+  "alpha_rbar": 0.01,
+  "gamma": 0.9
+ },
+ "hyperparameter_hash": "6bd81a48241ebd45",
+ "hyperparameter_rule": "DECISIONS 18.7",
+ "counts": {
+  "n_pn": 106,
+  "n_kc": 1633,
+  "n_mbon": 47,
+  "bundle_sizes": [
+   12,
+   12,
+   12,
+   11
+  ],
+  "n_vis": 26,
+  "n_kc_vis": 58
+ },
+ "connection_density": 0.26132558533439304,
+ "arrays": {
+  "J": [
+   [
+    1633,
+    13
+   ],
+   "float64"
+  ],
+  "alpha": [
+   [
+    13
+   ],
+   "float64"
+  ],
+  "w0": [
+   [
+    1633,
+    47
+   ],
+   "float64"
+  ],
+  "M": [
+   [
+    1633,
+    47
+   ],
+   "bool"
+  ],
+  "J_pn": [
+   [
+    1633,
+    106
+   ],
+   "int32"
+  ],
+  "W0": [
+   [
+    1633,
+    47
+   ],
+   "int32"
+  ],
+  "mbon_bundle": [
+   [
+    47
+   ],
+   "int64"
+  ],
+  "pn_channel": [
+   [
+    106
+   ],
+   "int64"
+  ],
+  "pn_body": [
+   [
+    106
+   ],
+   "int64"
+  ],
+  "pn_type": [
+   [
+    106
+   ],
+   "<U9"
+  ],
+  "pn_glom": [
+   [
+    106
+   ],
+   "<U4"
+  ],
+  "kc_body": [
+   [
+    1633
+   ],
+   "int64"
+  ],
+  "kc_type": [
+   [
+    1633
+   ],
+   "<U10"
+  ],
+  "kc_class": [
+   [
+    1633
+   ],
+   "<U5"
+  ],
+  "mbon_body": [
+   [
+    47
+   ],
+   "int64"
+  ],
+  "mbon_type": [
+   [
+    47
+   ],
+   "<U11"
+  ],
+  "J_vis": [
+   [
+    1633,
+    26
+   ],
+   "int32"
+  ],
+  "vis_body": [
+   [
+    26
+   ],
+   "int64"
+  ],
+  "vis_type": [
+   [
+    26
+   ],
+   "<U7"
+  ],
+  "kc_modality": [
+   [
+    1633
+   ],
+   "<U3"
+  ],
+  "vis_channel": [
+   [
+    26
+   ],
+   "int64"
+  ]
+ },
+ "channel_order": "냄새 좌 · 앞 · 우 · 뒤, 상태 z, 페로몬 좌 · 앞 · 우 · 뒤, 시각 좌 · 앞 · 우 · 뒤 (J의 열)",
+ "bundle_order": "좌 · 직진 · 우 · 반전 (mbon_bundle의 값)",
+ "identity_order": "pn_* · kc_* · mbon_*는 J_pn · W0 · J · w0의 행 · 열 순서 그대로 (bodyId · 종류)",
+ "passed": "작은 과제 A~C, D (n = 0, 5), 회로 v2",
+ "npz_sha256": "3846ea80a725e721fdc01499907b378dd905033348ce89cf581e0e57826bcdbc"
+}
