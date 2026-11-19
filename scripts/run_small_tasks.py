@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import math
 import sys
 from pathlib import Path
@@ -22,8 +23,11 @@ from flypac.tasks import runner
 from flypac.tasks.tmaze import TMaze, combos
 
 REPO = Path(__file__).resolve().parents[1]
-OUT = REPO / "runs" / "small_tasks"
-BRAIN = "configs/brain_v1.yaml"
+# 뇌 설정은 환경변수 FLYPAC_BRAIN으로 바꿀 수 있다 (회로 v2, DECISIONS 42). 기본은 v1 그대로.
+# v1이 아니면 결과 폴더 이름에 설정 이름을 붙여 v1 결과를 덮어쓰지 않는다.
+BRAIN = os.environ.get("FLYPAC_BRAIN", "configs/brain_v1.yaml")
+_SUFFIX = "" if BRAIN == "configs/brain_v1.yaml" else "_" + Path(BRAIN).stem
+OUT = REPO / "runs" / ("small_tasks" + _SUFFIX)
 TASKS = load_config(REPO / "configs" / "tasks_v1.yaml")
 SEEDS = [6000, 6001, 6002, 6003, 6004]
 CONFIRM_SEEDS = [4000, 4001, 4002, 4003, 4004]

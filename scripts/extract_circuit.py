@@ -1031,11 +1031,181 @@ def stage_extract(client_factory, refresh: bool, cfg_path: Path) -> Path:
     return raw_path
 
 
+# ---------------------------------------------------------------- 회로 v2: 시각 경로 (DECISIONS 42)
+
+MODULATORY_RE = r"^(OA-|PPL|PAM|5-HT)"   # 신경조절 뉴런 (시각 입력원에서 뺀다)
+
+
+def select_circuit_v2(d: dict, cfg) -> dict:
+    """v1 선택(후각)은 그대로 두고, 부속 칼릭스의 시각 경로를 더한다 (DECISIONS 42, 결과 전 고정).
+
+    1. 후각: select_circuit(d, cfg)와 같은 PN · KC (바뀌지 않는다).
+    2. 시각 입력 뉴런: rois.visual_calyx(dACA · vACA)에서 KC로 가는 연결을 뉴런 쌍마다 합해 s_min 정리 뒤,
+       뉴런당 합 ≥ vision.theta_v. 빼는 것: 주석 없음, APL · DPM, KC, 이름에 PN이 들어간 뉴런(후각 · 온습도 PN 계열),
+       신경조절(MODULATORY_RE). lACA는 rois.visual_calyx에 없으므로 세지 않는다 (온도 감각 중심).
+    3. 시각 KC: 시각 몫 = (선택 시각 뉴런 → 시각 칼릭스) / (그것 + 본 칼릭스의 PN 계열 입력) ≥ vision.theta_kc,
+       선택 시각 입력 ≥ vision.kc_min_input. v1 θ_KC와 같은 꼴.
+    4. KC = 후각 KC ∪ 시각 KC (bodyId 오름차순). MBON은 v1의 θ_MBON으로 이 KC 전체에서 다시 고른다.
+    5. 행렬: J_pn (KC × 후각 PN, 본 칼릭스), J_vis (KC × 시각 뉴런, 시각 칼릭스), W0 (KC × MBON). 모두 정리된 시냅스 수.
+    """
+    v1 = select_circuit(d, cfg)
+    th = cfg["thresholds"]
+    vis_cfg = cfg["vision"]
+    s_min = th["s_min"]
+    vis_rois = list(cfg["rois"]["visual_calyx"])
+    kc, mbon = d["kc"], d["mbon"]
+    conn = d["conn"]
+    sel_pn_ids = v1["arrays"]["pn_body"]
+    olf_kc_ids = v1["arrays"]["kc_body"]
+
+    # 시각 칼릭스 → KC, 뉴런 쌍마다 합 → s_min 정리
+    va = conn[conn["roi"].isin(vis_rois) & conn["bodyId_post"].isin(kc["bodyId"])]
+    vpairs = va.groupby(["bodyId_pre", "bodyId_post"], as_index=False) \
+        .agg(weight=("weight", "sum"), src=("src", "first"), pre_type=("pre_type", "first"))
+    vpairs = vpairs[vpairs["weight"] >= s_min]
+    ptype = vpairs["pre_type"].astype(str)
+    allowed = (vpairs["src"] == "other_annotated") & vpairs["pre_type"].notna() \
+        & ~ptype.isin(["", "None", "nan"]) & ~ptype.str.contains("PN") & ~ptype.str.match(MODULATORY_RE)
+    vcand = vpairs[allowed]
+    v_out = vcand.groupby("bodyId_pre")["weight"].sum()
+    sel_vis_ids = np.sort(v_out[v_out >= vis_cfg["theta_v"]].index.to_numpy())
+
+    # 시각 KC
+    ca = d["ca"]
+    ca_pairs = ca[ca["bodyId_post"].isin(kc["bodyId"])].groupby(["bodyId_pre", "bodyId_post"], as_index=False) \
+        .agg(weight=("weight", "sum"), src=("src", "first"))
+    ca_kc = ca_pairs[ca_pairs["weight"] >= s_min]
+    pn_family = ca_kc[ca_kc["bodyId_pre"].isin(d["pn"]["bodyId"])]
+    den_pn = pn_family.groupby("bodyId_post")["weight"].sum().reindex(kc["bodyId"]).fillna(0)
+    vsel = vcand[vcand["bodyId_pre"].isin(sel_vis_ids)]
+    num_v = vsel.groupby("bodyId_post")["weight"].sum().reindex(kc["bodyId"]).fillna(0)
+    den_v = num_v + den_pn
+    frac_v = num_v / den_v.where(den_v > 0)
+    vkeep = (den_v > 0) & (frac_v >= vis_cfg["theta_kc"]) & (num_v >= vis_cfg["kc_min_input"])
+    vis_kc_ids = np.sort(vkeep[vkeep].index.to_numpy())
+    sel_kc_ids = np.union1d(olf_kc_ids, vis_kc_ids)
+    olf_set, vis_set = set(olf_kc_ids.tolist()), set(vis_kc_ids.tolist())
+    modality = np.array([("olf+vis" if (b in olf_set and b in vis_set) else "olf" if b in olf_set else "vis")
+                         for b in sel_kc_ids])
+
+    # MBON (v1과 같은 θ_MBON, KC 전체로 다시)
+    k2 = d["k2m"]["conn"]
+    mb_rois = [ROI_PED, *ROI_COMPARTMENTS]
+    e_all = k2[k2["roi"].isin(mb_rois)].groupby(["bodyId_pre", "bodyId_post"], as_index=False)["weight"].sum()
+    e_all = e_all[e_all["bodyId_pre"].isin(kc["bodyId"]) & e_all["bodyId_post"].isin(mbon["bodyId"])]
+    e = e_all[e_all["weight"] >= s_min]
+    e_sel = e[e["bodyId_pre"].isin(sel_kc_ids)]
+    m_in = e_sel.groupby("bodyId_post")["weight"].sum().reindex(mbon["bodyId"]).fillna(0)
+    sel_mbon_ids = np.sort(m_in[m_in >= th["theta_mbon"]].index.to_numpy())
+
+    kc_idx = {b: i for i, b in enumerate(sel_kc_ids)}
+    pn_idx = {b: i for i, b in enumerate(sel_pn_ids)}
+    vs_idx = {b: i for i, b in enumerate(sel_vis_ids)}
+    mb_idx = {b: i for i, b in enumerate(sel_mbon_ids)}
+    pk = ca_kc[ca_kc["bodyId_pre"].isin(sel_pn_ids) & ca_kc["bodyId_post"].isin(sel_kc_ids)]
+    vk = vsel[vsel["bodyId_post"].isin(sel_kc_ids)]
+    km = e_sel[e_sel["bodyId_post"].isin(sel_mbon_ids)]
+    J = np.zeros((len(sel_kc_ids), len(sel_pn_ids)), dtype=np.int32)
+    J[pk["bodyId_post"].map(kc_idx).to_numpy(), pk["bodyId_pre"].map(pn_idx).to_numpy()] = pk["weight"].to_numpy()
+    Jv = np.zeros((len(sel_kc_ids), len(sel_vis_ids)), dtype=np.int32)
+    Jv[vk["bodyId_post"].map(kc_idx).to_numpy(), vk["bodyId_pre"].map(vs_idx).to_numpy()] = vk["weight"].to_numpy()
+    W0 = np.zeros((len(sel_kc_ids), len(sel_mbon_ids)), dtype=np.int32)
+    W0[km["bodyId_pre"].map(kc_idx).to_numpy(), km["bodyId_post"].map(mb_idx).to_numpy()] = km["weight"].to_numpy()
+    assert ((J == 0) | (J >= s_min)).all() and ((Jv == 0) | (Jv >= s_min)).all() and ((W0 == 0) | (W0 >= s_min)).all()
+
+    kc_t = kc.set_index("bodyId")
+    mb_t = mbon.set_index("bodyId")
+    vis_type = vpairs.drop_duplicates("bodyId_pre").set_index("bodyId_pre")["pre_type"]
+    sel_cls = kc_t.loc[sel_kc_ids, "kc_class"].to_numpy()
+    prof = np.stack([W0[sel_cls == c].sum(axis=0) for c in KC_CLASS_ORDER], axis=1).astype(np.float64)
+    prof = prof / prof.sum(axis=1, keepdims=True)
+    a1 = v1["arrays"]
+    arrays = {
+        "pn_body": a1["pn_body"], "pn_type": a1["pn_type"], "pn_glom": a1["pn_glom"], "glom_names": a1["glom_names"],
+        "vis_body": sel_vis_ids.astype(np.int64),
+        "vis_type": vis_type.loc[sel_vis_ids].to_numpy().astype(str),
+        "kc_body": sel_kc_ids.astype(np.int64),
+        "kc_type": kc_t.loc[sel_kc_ids, "type"].to_numpy().astype(str),
+        "kc_class": sel_cls.astype(str),
+        "kc_modality": modality.astype(str),
+        "mbon_body": sel_mbon_ids.astype(np.int64),
+        "mbon_type": mb_t.loc[sel_mbon_ids, "type"].to_numpy().astype(str),
+        "J_pn": J, "J_vis": Jv, "W0": W0,
+        "mbon_class_profile": prof,
+        "mbon_class_profile_candidates": v1["arrays"]["mbon_class_profile_candidates"]
+        if len(sel_mbon_ids) == len(a1["mbon_body"]) and (sel_mbon_ids == a1["mbon_body"]).all()
+        else np.full((len(sel_mbon_ids), 3), np.nan),
+    }
+    stats = {
+        "v1_selected": v1["stats"]["selected"],
+        "selected": {"pn": int(len(sel_pn_ids)), "vis": int(len(sel_vis_ids)), "kc": int(len(sel_kc_ids)),
+                     "kc_olf": int(len(olf_kc_ids)), "kc_vis": int(len(vis_kc_ids)),
+                     "kc_both": int((modality == "olf+vis").sum()), "mbon": int(len(sel_mbon_ids))},
+        "vis_candidates_after_exclusion": int(vcand["bodyId_pre"].nunique()),
+        "vis_types": {str(t): int(n) for t, n in pd.Series(arrays["vis_type"]).value_counts().items()},
+        "vis_kc_types": {str(t): int(n) for t, n in
+                         pd.Series(kc_t.loc[vis_kc_ids, "type"]).value_counts().items()},
+        "mbon_added_vs_v1": sorted(set(sel_mbon_ids.tolist()) - set(a1["mbon_body"].tolist())),
+        "mbon_removed_vs_v1": sorted(set(a1["mbon_body"].tolist()) - set(sel_mbon_ids.tolist())),
+        "isolated_in_circuit": {
+            "vis_without_kc": int(((Jv > 0).sum(axis=0) == 0).sum()),
+            "kc_without_input": int((((J > 0).sum(axis=1) + (Jv > 0).sum(axis=1)) == 0).sum()),
+            "kc_without_mbon": int(((W0 > 0).sum(axis=1) == 0).sum()),
+        },
+    }
+    tables = {"vis_out": v_out, "vis_frac": frac_v, "vis_num": num_v, "mbon_in": m_in}
+    return {"arrays": arrays, "stats": stats, "tables": tables}
+
+
+def stage_extract_v2(client_factory, refresh: bool, cfg_path: Path) -> Path:
+    from flypac.core.config import load_config
+
+    cfg = load_config(cfg_path)
+    check_config_rois(cfg)
+    d = load_data(client_factory, refresh)
+    res = select_circuit_v2(d, cfg)
+    arrays, stats = res["arrays"], res["stats"]
+    raw_path = ROOT / cfg["output"]["raw"]
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(raw_path, **arrays)
+    meta = {
+        "format": "mb_raw_v2",
+        "dataset": DATASET, "server": SERVER,
+        "extracted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "fetched_at": {k: v["fetched_at"] for k, v in d["cache"].meta.items()},
+        "thresholds": dict(cfg["thresholds"]), "vision": dict(cfg["vision"]),
+        "visual_calyx": list(cfg["rois"]["visual_calyx"]),
+        "vision_exclusions": "주석 없음, APL, DPM, KC, 이름에 PN, 신경조절 " + MODULATORY_RE + ", lACA(세지 않음)",
+        "synapse_count_rois": {"J_pn": [ROI_MAIN_CALYX], "J_vis": list(cfg["rois"]["visual_calyx"]),
+                               "W0": [ROI_PED, *ROI_COMPARTMENTS]},
+        "counts": stats,
+        "sort_rule": "모든 뉴런 배열은 bodyId 오름차순. 후각 PN · KC 선택은 mb_raw_v1과 같은 규칙",
+        "raw_sha256": sha256_file(raw_path),
+        "attribution": "hemibrain v1.2.1, Janelia FlyEM. Scheffer et al. 2020, eLife 9:e57443. CC BY 4.0. "
+                       "시각 입력 구분의 참고: Li et al. 2020, eLife 9:e62576",
+        "config": str(cfg_path.relative_to(ROOT) if cfg_path.is_absolute() else cfg_path),
+        "config_hash": cfg.hash(),
+    }
+    meta_path = raw_path.with_name(raw_path.name[:-4] + ".meta.json")
+    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    t = res["tables"]
+    lines = ["# 회로 v2 추출 보고 (시각 경로, DECISIONS 42)\n", "```", json.dumps(stats, indent=2, ensure_ascii=False), "```",
+             "", "## 시각 입력 뉴런 후보 (제외 뒤, 시각 칼릭스 → KC 합)\n", "| bodyId | type | 합 | 선택 |", "|---|---|---|---|"]
+    vt = dict(zip(arrays["vis_body"].tolist(), arrays["vis_type"].tolist()))
+    up_t = d["kin"]["neurons"].drop_duplicates("bodyId").set_index("bodyId")["type"]
+    for b, v in t["vis_out"].sort_values(ascending=False).items():
+        lines.append(f"| {b} | {vt.get(b, up_t.get(b, '?'))} | {int(v)} | {'예' if v >= cfg['vision']['theta_v'] else ''} |")
+    rep = OUT_DIR / "extract_v2_report.md"
+    rep.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(json.dumps(stats["selected"], ensure_ascii=False))
+    return raw_path
+
+
 # ---------------------------------------------------------------- 진입점
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--stage", required=True, choices=["inventory", "extract"])
+    ap.add_argument("--stage", required=True, choices=["inventory", "extract", "extract_v2"])
     ap.add_argument("--config", type=Path, default=None)
     ap.add_argument("--refresh", action="store_true", help="캐시가 있어도 서버에서 다시 받는다")
     args = ap.parse_args(argv)
@@ -1050,7 +1220,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit("NEUPRINT_TOKEN 이 .env 에 없습니다.")
             return connect(token)
 
-        if args.stage == "extract":
+        if args.stage == "extract_v2":
+            if args.config is None:
+                raise SystemExit("--stage extract_v2 에는 --config 가 필요하다.")
+            path = stage_extract_v2(factory, args.refresh, args.config)
+            print(f"원본: {path.relative_to(ROOT)}, 보고서: runs/extract/extract_v2_report.md")
+        elif args.stage == "extract":
             if args.config is None:
                 raise SystemExit("--stage extract 에는 --config 가 필요하다.")
             path = stage_extract(factory, args.refresh, args.config)

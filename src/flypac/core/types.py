@@ -47,6 +47,7 @@ class FlyObs:
 
     odor, phero: (B,F,4) 자기중심 순서(좌·앞·우·뒤), ln(1+c/c0) 적용 후, 벽은 0.
     z: (B,F) 내부 상태. legal: (B,F,4) bool. decide: (B,F) bool.
+    vision: (B,F,4) 자기중심 순서의 시각 입력 (DECISIONS 42). 시각을 끈 실행은 None (뇌는 0으로 읽는다).
     """
 
     odor: np.ndarray
@@ -54,10 +55,11 @@ class FlyObs:
     z: np.ndarray
     legal: np.ndarray
     decide: np.ndarray
+    vision: np.ndarray | None = None
 
     def validate(self) -> None:
         b, f = self.z.shape
-        for name in ("odor", "phero", "legal"):
+        for name in ("odor", "phero", "legal") + (("vision",) if self.vision is not None else ()):
             if getattr(self, name).shape != (b, f, 4):
                 raise ValueError(f"{name}의 모양은 {(b, f, 4)}이어야 한다")
         if self.decide.shape != (b, f):
