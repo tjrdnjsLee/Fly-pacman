@@ -282,6 +282,12 @@ class FlyBrain(GhostController):
         self.lateral_horn = bool(LH is None or LH["enabled"])
         if not self.lateral_horn:
             self.g = 0.0
+        # 부호 대조군 (DECISIONS 42.12): 가중치 갱신의 (R_n − R̄)에 ξ = ±1(갱신마다 무작위)을 곱한다.
+        # 같은 크기로 움직이지만 보상과의 상관이 없다. R̄ 갱신과 흔적은 그대로. 블록이 없으면 끔 (지금까지와 같다)
+        SC = cfg.get("sign_control")
+        self.sign_control = bool(SC is not None and SC["enabled"])
+        if self.sign_control:
+            self._xi_rngs = [np.random.default_rng([int(SC["seed"]), int(s)]) for s in seeds]
         self.evaluate = bool(evaluate)
         self.eta = 0.0 if (condition == B0 or self.evaluate) else float(L.eta)
         self.alpha_rbar, self.gamma = float(L.alpha_rbar), float(L.gamma)
@@ -424,6 +430,8 @@ class FlyBrain(GhostController):
         본능 세기를 배우면 같은 R_n - R̄로 k_gain ← clip(k_gain + η_k (R_n - R̄) e_k)도 한다 (R̄ 갱신은 한 번)."""
         if self.eta != 0.0:
             delta = self.eta * (self.Rn[b, f] - self.rbar[b, f])
+            if delta != 0.0 and self.sign_control:
+                delta = delta if self._xi_rngs[b].random() < 0.5 else -delta
             if delta != 0.0:
                 d = self.dw[b, f]
                 d += delta * self.e[b, f] * self.circuit.M

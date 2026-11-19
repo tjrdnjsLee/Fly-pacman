@@ -274,3 +274,48 @@ def test_defaults_are_v1(tmp_path):
     from flypac.core.runner import shaping_lam, vision_R
     cfg = load_config(ROOT / "configs" / "main_v1.yaml")
     assert vision_R(cfg) == 0 and shaping_lam(cfg) == 0.0
+
+
+# ---------------------------------------------------------------- 부호 대조군 (DECISIONS 42.12)
+
+def _sc_brain(tmp_path, sign_control):
+    c2 = build_circuit(_raw_v2(tmp_path), _assign_cfg(), 0)
+    cfg = load_config(ROOT / "configs" / "brain_v1.yaml").to_dict()
+    cfg["kc"] = {"rho": 0.25, "theta": 0.0}
+    if sign_control:
+        cfg["sign_control"] = {"enabled": True, "seed": 7}
+    return FlyBrain(Config(cfg), 1, [0], circuit=c2)
+
+
+def test_sign_control_flips_update_sign_only(tmp_path):
+    F = 4
+    rng = np.random.default_rng(3)
+    a, b = _sc_brain(tmp_path, False), _sc_brain(tmp_path, True)
+    assert not a.sign_control and b.sign_control
+    flips = same = 0
+    for t in range(60):
+        odor = rng.random((1, F, 4))
+        o = FlyObs(odor=odor, phero=np.zeros((1, F, 4)), z=np.zeros((1, F), bool),
+                   legal=np.ones((1, F, 4), bool), decide=np.ones((1, F), bool))
+        for br in (a, b):
+            br.dw[:] = 0.0
+            br.e[:] = 0.0
+            br.rbar[:] = 0.0
+        for br in (a, b):
+            br.propose(o, np.ones(1, bool))
+        for br in (a, b):
+            br.commit(np.ones((1, F), bool), np.ones((1, F), bool))   # 흔적만 쌓인다 (R_n = 0 → 갱신 0)
+        R = 0.01 * rng.normal(size=(1, F))                            # 작게: w ≥ 0 경계 자르기를 피한다
+        for br in (a, b):
+            br.give_reward(R)
+            br.propose(o, np.ones(1, bool))
+            br.commit(np.ones((1, F), bool), np.ones((1, F), bool))   # 이번 확정에서 (R_n − R̄) e로 갱신
+        assert np.allclose(a.rbar, b.rbar)                            # R̄ 갱신은 같다
+        for f in range(F):
+            if np.allclose(a.dw[0, f], b.dw[0, f]):
+                same += 1
+            elif np.allclose(a.dw[0, f], -b.dw[0, f]):
+                flips += 1
+            else:
+                raise AssertionError("부호만 달라야 한다")
+    assert flips > 40 and same > 40                                    # 대략 반반 (240번 중)
