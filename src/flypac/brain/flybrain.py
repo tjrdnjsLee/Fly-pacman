@@ -80,14 +80,23 @@ def load_brain_config(path) -> Config:
 @dataclass(frozen=True)
 class Circuit:
     """뇌가 쓰는 회로. 배열은 모두 읽기 전용."""
-    J: np.ndarray            # (N_KC, 9) 채널 단위
-    alpha: np.ndarray        # (9,) 채널 이득 α_c
+    J: np.ndarray            # (N_KC, C) 채널 단위. C = 9 (v1) 또는 13 (v2, 시각 4채널 더함)
+    alpha: np.ndarray        # (C,) 채널 이득 α_c
     w0: np.ndarray           # (N_KC, N_MBON) 정규화된 초기 가중치 (불변 참조)
     M: np.ndarray            # (N_KC, N_MBON) bool 연결 마스크
     mbon_bundle: np.ndarray  # (N_MBON,) 행동 묶음 번호 (자기중심)
     pn_channel: np.ndarray   # (N_PN,) 채널 번호
     source_hash: str         # 회로 파일 sha256
     seed: int                # 배정 시드
+    vis_channel: np.ndarray | None = None   # (N_VIS,) 시각 입력 뉴런의 채널 번호 (v2만)
+
+    @property
+    def n_channels(self) -> int:
+        return self.J.shape[1]
+
+    @property
+    def has_vision(self) -> bool:
+        return self.n_channels == A.N_CHANNELS_V2
 
     @property
     def n_kc(self) -> int:
@@ -117,13 +126,19 @@ def build_circuit(raw_path, assign_cfg: Config | dict, seed: int) -> Circuit:
                                      int(acfg["mbon_groups"]["max_passes"]))
     gch = A.assign_pn_channels(raw.glom_names, int(seed), branch, pher)
     pch = A.pn_channels(raw.pn_glom, raw.glom_names, gch)
-    J = A.channel_matrix(raw.J_pn, pch)
+    vch = None
+    if raw.has_vision:   # 회로 v2 (DECISIONS 42): 후각 배정은 그대로, 시각 뉴런을 시각 4채널에
+        vch = A.assign_vis_channels(len(raw.vis_body), int(seed))
+        J = A.channel_matrix_v2(raw.J_pn, pch, raw.J_vis, vch)
+    else:
+        J = A.channel_matrix(raw.J_pn, pch)
     _, alpha, ok = A.channel_gains(J)
     if not ok:
         raise ValueError(f"배정 시드 {seed}: S_c = 0인 채널이 있어 α_c를 정할 수 없다 (DECISIONS 10.1 규칙 4)")
     return Circuit(J=_readonly(J.astype(np.float64)), alpha=_readonly(alpha), w0=_readonly(w0),
                    M=_readonly(raw.W0 > 0), mbon_bundle=_readonly(labels.astype(np.int64)),
-                   pn_channel=_readonly(pch), source_hash=file_sha256(raw_path), seed=int(seed))
+                   pn_channel=_readonly(pch), source_hash=file_sha256(raw_path), seed=int(seed),
+                   vis_channel=None if vch is None else _readonly(vch))
 
 
 def circuit_from_config(cfg: Config) -> Circuit:
@@ -165,19 +180,35 @@ def load_experiment_circuit(cfg: Config) -> Circuit:
     check_experiment_circuit_meta(cfg, meta)
     with np.load(repo_path(cfg.circuit.file)) as z:
         arr = {k: _readonly(z[k]) for k in ("J", "alpha", "w0", "M", "mbon_bundle", "pn_channel")}
+        if "vis_channel" in z.files:
+            arr["vis_channel"] = _readonly(z["vis_channel"])
     return Circuit(**arr, source_hash=file_sha256(cfg.circuit.file), seed=int(meta["assign_seed"]))
 
 
 # ---------------------------------------------------------------- 순수 계산 (표현력 시험에서도 쓴다)
 
-def pn_input(odor: np.ndarray, z: np.ndarray, phero: np.ndarray) -> np.ndarray:
-    """채널 순서 (냄새 좌 · 앞 · 우 · 뒤, z, 페로몬 좌 · 앞 · 우 · 뒤). 모양 (..., 9). α_c는 곱하지 않는다."""
+def pn_input(odor: np.ndarray, z: np.ndarray, phero: np.ndarray, vision: np.ndarray | None = None) -> np.ndarray:
+    """채널 순서 (냄새 좌 · 앞 · 우 · 뒤, z, 페로몬 좌 · 앞 · 우 · 뒤[, 시각 좌 · 앞 · 우 · 뒤]).
+    모양 (..., 9), vision을 주면 (..., 13). α_c는 곱하지 않는다."""
     z = np.asarray(z, dtype=np.float64)[..., None]
-    return np.concatenate([np.asarray(odor, np.float64), z, np.asarray(phero, np.float64)], axis=-1)
+    parts = [np.asarray(odor, np.float64), z, np.asarray(phero, np.float64)]
+    if vision is not None:
+        parts.append(np.asarray(vision, np.float64))
+    return np.concatenate(parts, axis=-1)
 
 
 def kc_drive(p: np.ndarray, circuit: Circuit) -> np.ndarray:
-    """u = J (α ⊙ p). p (..., 9) → (..., N_KC)."""
+    """u = J (α ⊙ p). p (..., C) → (..., N_KC).
+
+    회로가 시각 채널을 가지는데(C = 13) p가 9채널이면 시각 입력을 0으로 채운다 (시각 입력이 없는 과제 · 진단).
+    """
+    p = np.asarray(p, dtype=np.float64)
+    C = circuit.J.shape[1]
+    if p.shape[-1] != C:
+        if p.shape[-1] == A.N_CHANNELS and C == A.N_CHANNELS_V2:
+            p = np.concatenate([p, np.zeros(p.shape[:-1] + (C - A.N_CHANNELS,))], axis=-1)
+        else:
+            raise ValueError(f"PN 입력 채널 {p.shape[-1]}개가 회로의 {C}개와 다르다")
     return (p * circuit.alpha) @ circuit.J.T
 
 
@@ -245,6 +276,18 @@ class FlyBrain(GhostController):
             raise ValueError(f"k = ceil(ρ N_KC) = {self.k}가 범위 밖이다")
         L = cfg.learn
         self.kappa, self.g, self.beta = float(L.kappa), float(L.g), float(L.beta)
+        # 외측뿔 본능 항을 끈 뇌 (DECISIONS 42.6): lateral_horn.enabled가 거짓이면 g = 0.
+        # learn 블록(하이퍼파라미터 해시)은 그대로 두고, 뇌 설정 해시만 달라진다 (가중치 파일이 이를 기록한다)
+        LH = cfg.get("lateral_horn")
+        self.lateral_horn = bool(LH is None or LH["enabled"])
+        if not self.lateral_horn:
+            self.g = 0.0
+        # 부호 대조군 (DECISIONS 42.12): 가중치 갱신의 (R_n − R̄)에 ξ = ±1(갱신마다 무작위)을 곱한다.
+        # 같은 크기로 움직이지만 보상과의 상관이 없다. R̄ 갱신과 흔적은 그대로. 블록이 없으면 끔 (지금까지와 같다)
+        SC = cfg.get("sign_control")
+        self.sign_control = bool(SC is not None and SC["enabled"])
+        if self.sign_control:
+            self._xi_rngs = [np.random.default_rng([int(SC["seed"]), int(s)]) for s in seeds]
         self.evaluate = bool(evaluate)
         self.eta = 0.0 if (condition == B0 or self.evaluate) else float(L.eta)
         self.alpha_rbar, self.gamma = float(L.alpha_rbar), float(L.gamma)
@@ -319,11 +362,14 @@ class FlyBrain(GhostController):
 
     @property
     def channel_names(self) -> tuple[str, ...]:
-        return A.channel_names()
+        return A.channel_names_v2() if self.circuit.has_vision else A.channel_names()
 
     def forward(self, obs: FlyObs, rows_b: np.ndarray):
         """게임 rows_b의 (p, u, k, m). 상태는 바꾸지 않는다 (동률 난수만 쓴다)."""
-        p = pn_input(obs.odor[rows_b], obs.z[rows_b], obs.phero[rows_b])        # (nb, F, 9)
+        vis = None
+        if self.circuit.has_vision:   # 회로 v2: 관측에 시각이 없으면 0 (DECISIONS 42)
+            vis = obs.vision[rows_b] if obs.vision is not None else np.zeros(obs.odor[rows_b].shape)
+        p = pn_input(obs.odor[rows_b], obs.z[rows_b], obs.phero[rows_b], vis)   # (nb, F, C)
         u = kc_drive(p, self.circuit)                                            # (nb, F, N_KC)
         nb = len(rows_b)
         tie = self.rngs["kc_tiebreak"]
@@ -384,6 +430,8 @@ class FlyBrain(GhostController):
         본능 세기를 배우면 같은 R_n - R̄로 k_gain ← clip(k_gain + η_k (R_n - R̄) e_k)도 한다 (R̄ 갱신은 한 번)."""
         if self.eta != 0.0:
             delta = self.eta * (self.Rn[b, f] - self.rbar[b, f])
+            if delta != 0.0 and self.sign_control:
+                delta = delta if self._xi_rngs[b].random() < 0.5 else -delta
             if delta != 0.0:
                 d = self.dw[b, f]
                 d += delta * self.e[b, f] * self.circuit.M
@@ -442,14 +490,14 @@ class FlyBrain(GhostController):
         """재생 로그의 뇌 필드 (TRD 19.13). 실행기가 이번 틱의 propose · commit 뒤에 부른다. 앞 축은 B.
 
         kc_active (B,F,k) int16: 켜진 KC 번호, 모자라는 자리는 -1.
-        pn_input (B,F,9): 채널 9묶음의 입력 p (α_c를 곱하기 전).
+        pn_input (B,F,C): 채널 C묶음(9, 시각 회로는 13)의 입력 p (α_c를 곱하기 전).
         mbon_out (B,F,N_MBON): 개별 MBON의 원래 활동 Σ_i w_ij k_i, w = w0 + dw (기준선 빼기 전. 제안 시점의 w).
         dan (B,F): 확정 시점의 R_n - R̄ (학습 직전 값). 학습이 일어난 확정이 아니면 0.
         brain_on (B,F) bool: 이 틱에 뇌 계산을 한 초파리 (동결된 게임은 거짓).
         """
         B, F = self.B, self.F
         kc = np.full((B, F, self.k), -1, dtype=np.int16)
-        pn = np.zeros((B, F, 9))
+        pn = np.zeros((B, F, self.circuit.n_channels))
         mbon = np.zeros((B, F, self.n_mbon))
         on = np.zeros((B, F), dtype=bool)
         if self._snap is not None:

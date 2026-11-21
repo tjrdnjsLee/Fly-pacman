@@ -134,6 +134,7 @@ def test_conjunction_and_jaccard():
 
 def test_load_raw_roundtrip(tmp_path, raw):
     p = tmp_path / "raw.npz"
-    np.savez_compressed(p, **{f: getattr(raw, f) for f in A.RawCircuit.__dataclass_fields__})
+    np.savez_compressed(p, **{f: getattr(raw, f) for f in A.RawCircuit.__dataclass_fields__
+                              if getattr(raw, f) is not None})   # v1 원본에는 시각 배열(None)이 없다 (DECISIONS 42)
     back = A.load_raw(p)
     assert np.array_equal(back.J_pn, raw.J_pn) and list(back.glom_names) == list(raw.glom_names)

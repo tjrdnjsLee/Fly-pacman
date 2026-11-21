@@ -1,0 +1,31 @@
+# 초파리 뇌 설정 v2, 외측뿔 끔 (DECISIONS 42.6): brain_v2.yaml과 같고 lateral_horn.enabled: false만 더했다 (g = 0).
+# 행동 규칙(본능)이 없다. 사냥은 버섯체가 배워야 한다. 이 파일은 관리자 소유다.
+# (아래는 brain_v2 머리말) 초파리 뇌 설정 v2: 시각 경로를 더한 회로 (DECISIONS 42).
+# 상태: 개발용. learn의 값은 v1 값을 그대로 둔 자리값이다. 회로가 바뀌었으므로 18절 규칙으로 다시 재고
+# (FLYPAC_BRAIN=configs/brain_v2.yaml uv run python scripts/measure_hparams.py), 그 값으로 바꾼 뒤 회로 파일을 다시 만든다.
+# (아래는 v1 머리말) 초파리 뇌 설정 (M1 뇌 작업 지시서 ② 2절).
+# 실행 설정에서 ghosts: {kind: flybrain, config: configs/brain_v1.yaml}로 부른다.
+
+circuit:
+  file: data/circuit/mb_v2.npz     # 실험 회로. 뇌는 이 파일을 읽는다 (DECISIONS 25.1). meta는 같은 이름의 .meta.json
+  raw: data/circuit/raw/mb_raw_v2.npz        # 원본 회로 (meta 대조용)
+  assign: configs/circuit_assign_v2.yaml     # 분기 · 페로몬 사구체 · MBON 묶음 탐색 설정 (meta 대조용)
+  seed: 0          # 확정 (작은 과제 A~D 통과, DECISIONS 19절·19.6). 바꾸면 18절 규칙으로 하이퍼파라미터를 다시 잰다
+
+kc:
+  rho: 0.05        # 상위 k 비율, k = ceil(rho * N_KC). DECISIONS 17.3 (ρ = 0.05 먼저, 과제 C 실패 시 0.10)
+  theta: 0.0       # KC 문턱 θ = c · ū_ref (c = 0). DECISIONS 17.3
+
+# 하이퍼파라미터: 측정 결과 반영 (DECISIONS 18.7, 규칙은 18절). 배정 시드 0 회로, ρ = 0.05, θ = 0에서 측정 시드 5000 ~ 5004로
+# 잰 값이다. 작은 과제의 성공률로 고르지 않았다. 회로 · ρ · θ를 바꾸면 18절의 규칙으로 다시 잰다.
+# 회로 v2에서 18절 규칙으로 측정 (runs/hparam_brain_v2/confirm_v1.json)
+learn:
+  kappa: 0.2        # 증거 누설 κ
+  g: 0.03747        # 본능 이득 g (외측뿔 모델 항). 채널 이득 α_c와 다른 기호
+  beta: 4           # softmax 역온도 β
+  eta: 1.106        # 학습률 η (조건 b0은 0으로 강제)
+  alpha_rbar: 0.01  # 기준 보상 R̄ 갱신률 α
+  gamma: 0.9        # 흔적 감쇠 γ (TRD 10.8)
+
+lateral_horn:
+  enabled: false   # g = 0 (DECISIONS 42.6). learn.g는 회로 meta 대조용으로 그대로 둔다

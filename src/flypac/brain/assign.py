@@ -9,6 +9,7 @@
 순서 규약:
 - 행동 묶음 a: 자기중심 번호 (좌 0, 직진 1, 우 2, 반전 3) = core/directions.py.
 - PN 채널 c: 냄새 좌 · 앞 · 우 · 뒤 (0 ~ 3), z (4), 페로몬 좌 · 앞 · 우 · 뒤 (5 ~ 8).
+  회로 v2(시각 경로, DECISIONS 42)는 시각 좌 · 앞 · 우 · 뒤 (9 ~ 12)를 더한다. 0 ~ 8의 배정은 v1과 같다.
 - KC 종류 τ: gamma, apbp(α′β′), ab(αβ).
 """
 
@@ -33,10 +34,19 @@ def channel_names(ego_names=None) -> tuple[str, ...]:
 
 
 CHANNEL_NAMES = channel_names()
-N_CHANNELS = len(CHANNEL_NAMES)
+N_CHANNELS = len(CHANNEL_NAMES)          # v1 채널 9개. 후각 사구체 배정은 언제나 이 9개 안에서 한다
 ODOR_CHANNELS = (0, 1, 2, 3)
 Z_CHANNEL = 4
 PHERO_CHANNELS = (5, 6, 7, 8)
+VISION_CHANNELS = (9, 10, 11, 12)        # 회로 v2 (DECISIONS 42)
+N_CHANNELS_V2 = N_CHANNELS + len(VISION_CHANNELS)
+
+
+def channel_names_v2(ego_names=None) -> tuple[str, ...]:
+    if ego_names is None:
+        from flypac.core import directions
+        ego_names = directions.EGO_NAMES
+    return channel_names(ego_names) + tuple(f"vision_{n}" for n in ego_names)
 KC_CLASSES = ("gamma", "apbp", "ab")
 
 
@@ -56,11 +66,20 @@ class RawCircuit:
     W0: np.ndarray
     mbon_class_profile: np.ndarray
     glom_names: np.ndarray
+    # 회로 v2만 (DECISIONS 42). v1 원본에는 없고 None이다
+    vis_body: np.ndarray | None = None
+    vis_type: np.ndarray | None = None
+    J_vis: np.ndarray | None = None
+    kc_modality: np.ndarray | None = None
+
+    @property
+    def has_vision(self) -> bool:
+        return self.J_vis is not None
 
 
 def load_raw(path: str | Path) -> RawCircuit:
     with np.load(Path(path), allow_pickle=False) as z:
-        return RawCircuit(**{f: z[f] for f in RawCircuit.__dataclass_fields__})
+        return RawCircuit(**{f: z[f] for f in RawCircuit.__dataclass_fields__ if f in z.files})
 
 
 # ---------------------------------------------------------------- MBON 4묶음 (규칙 2)
@@ -216,6 +235,22 @@ def assign_pn_channels(glom_names: np.ndarray, seed: int, branch: str,
 def pn_channels(pn_glom: np.ndarray, glom_names: np.ndarray, glom_channel: np.ndarray) -> np.ndarray:
     pos = {g: i for i, g in enumerate(glom_names)}
     return glom_channel[[pos[g] for g in pn_glom]]
+
+
+def assign_vis_channels(n_vis: int, seed: int) -> np.ndarray:
+    """시각 입력 뉴런별 채널 번호 (N_VIS,). 단위 = 뉴런. 시각 4채널에 크기 차이 ≤ 1로 무작위 분할 (DECISIONS 42.3).
+    난수는 배정 시드와 따로 흐른다 ([seed, 42]): 후각 사구체 배정(v1)을 바꾸지 않는다."""
+    rng = np.random.default_rng([int(seed), 42])
+    return _balanced_labels(int(n_vis), np.asarray(VISION_CHANNELS), rng)
+
+
+def channel_matrix_v2(J_pn: np.ndarray, pn_channel: np.ndarray, J_vis: np.ndarray, vis_channel: np.ndarray) -> np.ndarray:
+    """(N_KC, 13): 0 ~ 8은 channel_matrix와 같고, 9 ~ 12는 J_ic = Σ_{v∈c} J^vis_iv."""
+    J = np.zeros((J_pn.shape[0], N_CHANNELS_V2), dtype=np.int64)
+    J[:, :N_CHANNELS] = channel_matrix(J_pn, pn_channel)
+    for c in VISION_CHANNELS:
+        J[:, c] = J_vis[:, vis_channel == c].sum(axis=1)
+    return J
 
 
 def channel_matrix(J_pn: np.ndarray, pn_channel: np.ndarray) -> np.ndarray:
