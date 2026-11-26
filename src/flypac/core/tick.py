@@ -26,6 +26,7 @@ import numpy as np
 
 from flypac.core.events import Event, Kind
 from flypac.core.rng import GameRngs, RngGroup
+from flypac.core.shaping import OdorShaping
 from flypac.core.types import FlyObs, GameView
 from flypac.senses.sense import sense
 
@@ -35,7 +36,8 @@ PHERO_VIEWS = ("total", "others", "self")
 
 def _slice_obs(obs: FlyObs, b: int) -> FlyObs:
     """한 게임의 관측 조각 (F,4) 모양. regime.emission에 넘긴다."""
-    return FlyObs(obs.odor[b], obs.phero[b], obs.z[b], obs.legal[b], obs.decide[b])
+    return FlyObs(obs.odor[b], obs.phero[b], obs.z[b], obs.legal[b], obs.decide[b],
+                  None if obs.vision is None else obs.vision[b])
 
 
 @dataclass
@@ -66,7 +68,8 @@ class TickCore:
     def __init__(self, map, game, engine_rngs: GameRngs, ghosts, *, condition: str, pacman=None,
                  odor=None, phero=None, regime=None, recorder=None, c0: float = 1.0, s_odor: float = 0.0,
                  reset_odor_on_life_loss: bool = False, n_games: int | None = None, keep_games=(),
-                 phero_view: str = "total", phero_split=None):
+                 phero_view: str = "total", phero_split=None,
+                 vision_R: int = 0, vision_s: float = 0.0, shaping_lam: float = 0.0):
         if not isinstance(engine_rngs, GameRngs) or len(engine_rngs) != game.B:
             raise TypeError("engine_rngs에는 길이 B의 GameRngs(core.rng.game_rngs(seeds, 'engine'))를 넘긴다")
         if engine_rngs.purpose != "engine":
@@ -84,6 +87,10 @@ class TickCore:
         if phero_split is not None and phero is None:
             raise ValueError("phero.view(others · self)에는 페로몬 장이 필요하다 (체제 3)")
         self.phero_split = phero_split
+        # 시각 (DECISIONS 42.4): R = 0이면 끈다 (obs.vision = None, v1과 같다)
+        self.vision_R, self.vision_s = int(vision_R), float(vision_s)
+        if self.vision_R < 0 or (self.vision_R > 0 and not self.vision_s > 0):
+            raise ValueError(f"시각: R ≥ 0이고, R > 0이면 s > 0이어야 한다 (R = {vision_R}, s = {vision_s})")
         self.condition = str(condition)
         self.pass_views = self.condition == "b1"  # 원칙 2: views는 B1 조건에서만 조종기에 넘긴다
         self.B = game.B
@@ -92,6 +99,12 @@ class TickCore:
         self.c0, self.s_odor = float(c0), float(s_odor)
         self.reset_odor_on_life_loss = bool(reset_odor_on_life_loss)
         self.keep_games = set(keep_games)
+        # 냄새 퍼텐셜 보상 (DECISIONS 42.5): λ = 0이면 없다 (v1과 같다). 냄새 장과 체제 보상이 있어야 한다
+        self.shaping = None
+        if float(shaping_lam) != 0.0:
+            if odor is None or regime is None:
+                raise ValueError("냄새 퍼텐셜 보상에는 냄새 장과 체제가 필요하다")
+            self.shaping = OdorShaping(self.B, self.F, float(shaping_lam), self.c0)
         self.weight_writer = None  # 가중치 저장기 (recording/weights.py). 없으면 저장하지 않는다 (DECISIONS 26.1)
         self.game_no = np.ones(self.B, dtype=np.int64)  # 칸별 현재 판 번호 (1부터)
         # 칸별 현재 판의 틱 번호 (0부터). 틱 번호의 주인은 여기 하나다: 동결된 틱을 포함해 매 틱 올리고
@@ -137,6 +150,8 @@ class TickCore:
         if self.pacman is not None:
             self.pacman.reset(every)
         self.ghosts.reset_life(every)
+        if self.shaping is not None:
+            self.shaping.reset(every)
         self._start_games(every)
 
     # ---- 한 틱 (TRD 6.1) ----
@@ -178,7 +193,8 @@ class TickCore:
         odor_c = self.odor.c if self.odor is not None else np.zeros((B, self.map.nbr.shape[0]))
         phero_c = self.phero.c if self.phero is not None else np.zeros_like(odor_c)
         info = game.decision_info()
-        obs = sense(odor_c, phero_c, views, info, self.c0, nbr=self.map.nbr)  # 5
+        obs = sense(odor_c, phero_c, views, info, self.c0, nbr=self.map.nbr,
+                    vision_R=self.vision_R, vision_s=self.vision_s)  # 5
         if self.phero_split is not None:
             obs = replace(obs, phero=self._split_view(odor_c, views, info))
         if self.recorder is not None:
@@ -204,6 +220,8 @@ class TickCore:
         self.ghosts.commit(committed, active)  # 확정된 결정만. 복도 · 집 출구 이동(moved만 참)은 넘기지 않는다
         if eaten.any():
             self.ghosts.on_eaten(eaten)
+            if self.shaping is not None:
+                self.shaping.eaten(eaten)
         timers = self._stamp(game.tick_timers())                          # 9
         events: list[list[Event]] = [ev[b] + ev2[b] + timers[b] for b in range(B)]
 
@@ -235,6 +253,8 @@ class TickCore:
             for b in range(B):
                 if running[b]:
                     R[b] = self.regime.rewards(events[b])
+        if self.shaping is not None:   # 10번의 냄새 장 (확산 뒤)과 now의 위치 · z
+            R = R + self.shaping.step(self.odor.c, now, running)
         self.ghosts.give_reward(R)
 
         if self.recorder is not None:                                     # 12
@@ -301,6 +321,8 @@ class TickCore:
         if self.pacman is not None:
             self.pacman.reset(ends)
         self.ghosts.reset_life(ends)
+        if self.shaping is not None:
+            self.shaping.reset(ends)
         field_reset = over | (ends & self.reset_odor_on_life_loss)
         if field_reset.any():
             if self.odor is not None:

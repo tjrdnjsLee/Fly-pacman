@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,15 +22,19 @@ from flypac.brain.flybrain import build_circuit, file_sha256, load_brain_config
 from flypac.core.config import Config, load_config
 
 REPO = Path(__file__).resolve().parents[1]
-BRAIN = "configs/brain_v1.yaml"
-OUT_NPZ = REPO / "data" / "circuit" / "mb_v1.npz"
-OUT_META = REPO / "data" / "circuit" / "mb_v1.meta.json"
-STATUS = "실험용 확정 (작은 과제 A~D 통과)"
-GENERATOR = "make_experiment_circuit_v1"
+# 뇌 설정은 환경변수 FLYPAC_BRAIN으로 바꿀 수 있다 (회로 v2, DECISIONS 42). 출력 이름은 그 설정의 circuit.file을 따른다.
+BRAIN = os.environ.get("FLYPAC_BRAIN", "configs/brain_v1.yaml")
+_CFG = load_brain_config(BRAIN)
+OUT_NPZ = REPO / _CFG.circuit.file
+OUT_META = OUT_NPZ.with_name(OUT_NPZ.stem + ".meta.json")
+V2 = BRAIN != "configs/brain_v1.yaml"
+STATUS = (os.environ.get("FLYPAC_CIRCUIT_STATUS", "개발용 (하이퍼파라미터 재측정 · 작은 과제 재통과 전)") if V2
+          else "실험용 확정 (작은 과제 A~D 통과)")
+GENERATOR = "make_experiment_circuit_v2" if V2 else "make_experiment_circuit_v1"
 
 
 def build() -> tuple[dict, dict]:
-    cfg = load_brain_config(BRAIN)
+    cfg = _CFG
     acfg = load_config(REPO / cfg.circuit.assign)
     raw_path = REPO / cfg.circuit.raw
     seed = int(cfg.circuit.seed)
@@ -43,10 +48,13 @@ def build() -> tuple[dict, dict]:
         "kc_body": raw.kc_body, "kc_type": raw.kc_type, "kc_class": raw.kc_class,
         "mbon_body": raw.mbon_body, "mbon_type": raw.mbon_type,
     }
+    if raw.has_vision:   # 회로 v2 (DECISIONS 42)
+        arrays.update(J_vis=raw.J_vis, vis_body=raw.vis_body, vis_type=raw.vis_type, kc_modality=raw.kc_modality,
+                      vis_channel=np.asarray(c.vis_channel))
     size = np.bincount(c.mbon_bundle, minlength=A.N_ACTIONS)
     learn_hash = Config(cfg.to_dict()["learn"]).hash()
     meta = {
-        "format": "mb_v1", "status": STATUS, "generator": GENERATOR,
+        "format": "mb_v2" if raw.has_vision else "mb_v1", "status": STATUS, "generator": GENERATOR,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dataset": "hemibrain:v1.2.1", "raw_file": str(cfg.circuit.raw), "raw_sha256": file_sha256(raw_path),
         "assign_file": str(cfg.circuit.assign), "assign_config_hash": acfg.hash(),
@@ -55,13 +63,17 @@ def build() -> tuple[dict, dict]:
         "learn": cfg.to_dict()["learn"], "hyperparameter_hash": learn_hash,
         "hyperparameter_rule": "DECISIONS 18.7",
         "counts": {"n_pn": int(raw.pn_body.size), "n_kc": int(c.n_kc), "n_mbon": int(c.n_mbon),
-                   "bundle_sizes": size.tolist()},
+                   "bundle_sizes": size.tolist(),
+                   **({"n_vis": int(raw.vis_body.size),
+                       "n_kc_vis": int((raw.kc_modality != "olf").sum())} if raw.has_vision else {})},
         "connection_density": float(c.M.mean()),
         "arrays": {k: [list(v.shape), str(v.dtype)] for k, v in arrays.items()},
-        "channel_order": "냄새 좌 · 앞 · 우 · 뒤, 상태 z, 페로몬 좌 · 앞 · 우 · 뒤 (J의 열)",
+        "channel_order": "냄새 좌 · 앞 · 우 · 뒤, 상태 z, 페로몬 좌 · 앞 · 우 · 뒤"
+                         + (", 시각 좌 · 앞 · 우 · 뒤" if raw.has_vision else "") + " (J의 열)",
         "bundle_order": "좌 · 직진 · 우 · 반전 (mbon_bundle의 값)",
         "identity_order": "pn_* · kc_* · mbon_*는 J_pn · W0 · J · w0의 행 · 열 순서 그대로 (bodyId · 종류)",
-        "passed": "작은 과제 A~C (DECISIONS 19), D (지연 n = 0, 5 합격; n = 10, 30, 50은 저하 곡선 기록)",
+        "passed": (os.environ.get("FLYPAC_CIRCUIT_PASSED", "아직 없음") if V2 else
+                   "작은 과제 A~C (DECISIONS 19), D (지연 n = 0, 5 합격; n = 10, 30, 50은 저하 곡선 기록)"),
     }
     return arrays, meta
 

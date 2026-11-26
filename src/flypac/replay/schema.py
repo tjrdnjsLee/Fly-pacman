@@ -27,7 +27,8 @@ SUPPORTED_VERSIONS = (2, 3, 4, 5)
 N_FLIES = 4
 N_SENSE = 8  # 냄새 4방향 + 페로몬 4방향 (TRD 19.4)
 N_ACTIONS = 4
-N_PN = 9  # 냄새 4 + 상태 z 1 + 페로몬 4 (TRD 10.1, 19.13)
+N_PN = 9  # 냄새 4 + 상태 z 1 + 페로몬 4 (TRD 10.1, 19.13). 시각 회로 v2는 13 (DECISIONS 42)
+PN_SIZES = (9, 13)
 
 # 사건 종류의 정수 코드. 한 번 정하면 바꾸지 않는다 (새 종류는 뒤에 추가).
 KIND_CODES = {
@@ -93,7 +94,7 @@ FIELDS = (
     Field("phero_field", ("T", "N"), "float16", "phero", "페로몬 장 (체제3만)"),
     # --- 19.13 뇌 필드 (replay.brain 설정으로 켜고 끔). KC 번호는 이 묶음에서 필수 ---
     Field("kc_active", ("T", N_FLIES, "K"), "int16", "brain", "켜진 KC 번호 (모자라는 자리는 -1)"),
-    Field("pn_input", ("T", N_FLIES, N_PN), "float16", "brain", "PN 입력, 채널 9묶음"),
+    Field("pn_input", ("T", N_FLIES, N_PN), "float16", "brain", "PN 입력, 채널 9묶음 (시각 회로 v2는 13, PN_SIZES)"),
     Field("mbon_out", ("T", N_FLIES, "M"), "float16", "brain",
           "개별 MBON의 원래 활동 Σ_i w_ij k_i (기준선 빼기 전, w = w0 + dw)"),
     Field("dan", ("T", N_FLIES), "float16", "brain", "확정 시점의 R_n - R̄, 그 외 틱은 0"),
@@ -173,6 +174,8 @@ def validate(arrays: dict) -> dict:
         for axis, want in enumerate(f.shape):
             got = arr.shape[axis]
             if isinstance(want, int):
+                if name == "pn_input" and axis == 2 and got in PN_SIZES:   # 시각 회로 v2는 13 (DECISIONS 42)
+                    continue
                 if got != want:
                     raise SchemaError(f"{name}: 축 {axis} 크기 {want} 이어야 한다 (현재 {got})")
             elif dims.setdefault(want, got) != got:

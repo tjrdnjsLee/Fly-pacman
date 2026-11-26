@@ -58,7 +58,8 @@ class Runner(TickCore):
                          reset_odor_on_life_loss=bool(cfg.odor.reset_on_life_loss),
                          n_games=int(cfg.n_games),
                          keep_games=replay.get("keep_games", []) if replay else [],
-                         phero_view=phero_view(cfg), phero_split=phero_split)
+                         phero_view=phero_view(cfg), phero_split=phero_split,
+                         vision_R=vision_R(cfg), vision_s=vision_s(cfg), shaping_lam=shaping_lam(cfg))
         self.cfg = cfg
 
     # ---- 초기화 ----
@@ -92,6 +93,26 @@ class Runner(TickCore):
         return {"ticks": self.total_ticks, "games": list(self.results)}
 
 LEARNING_CONDITIONS = ("regime1", "regime2", "regime3")  # 가중치를 저장하는 조건 (B0 · B1은 학습이 없다)
+
+
+def vision_R(cfg) -> int:
+    """시각 시야 R (DECISIONS 42.4). 블록이 없으면 0 (끔)."""
+    v = cfg.get("vision")
+    return int(v["R"]) if v is not None else 0
+
+
+def vision_s(cfg) -> float:
+    v = cfg.get("vision")
+    return float(v["s"]) if v is not None else 0.0
+
+
+def shaping_lam(cfg) -> float:
+    """냄새 퍼텐셜 보상의 λ (DECISIONS 42.5). reward.shaping.lam이 없으면 0 (끔)."""
+    r = cfg.get("reward")
+    if r is None:
+        return 0.0
+    sh = r.get("shaping") if hasattr(r, "get") else None
+    return float(sh["lam"]) if sh is not None else 0.0
 
 
 def phero_view(cfg) -> str:

@@ -1,0 +1,112 @@
+{
+  "format": "mb_raw_v2",
+  "dataset": "hemibrain:v1.2.1",
+  "server": "neuprint.janelia.org",
+  "extracted_at": "2026-11-19T09:30:58+00:00",
+  "fetched_at": {
+    "rois": "2026-11-06T11:21:04.857211+00:00",
+    "neurons": "2026-11-06T11:21:11.665909+00:00",
+    "kc_inputs": "2026-11-06T11:21:25.419343+00:00",
+    "kc_to_mbon": "2026-11-06T11:21:31.699955+00:00",
+    "voxel_meta": "2026-11-06T11:35:15.890034+00:00",
+    "anat_pn_kc": "2026-11-06T11:58:52.546684+00:00",
+    "anat_kc_mbon": "2026-11-06T11:58:56.923128+00:00",
+    "anat_dan": "2026-11-06T11:44:48.190244+00:00"
+  },
+  "thresholds": {
+    "s_min": 3,
+    "theta_pn": 50,
+    "theta_kc": 0.8,
+    "kc_min_selected_pn_input": 20,
+    "theta_mbon": 100
+  },
+  "vision": {
+    "theta_v": 20,
+    "theta_kc": 0.8,
+    "kc_min_input": 20
+  },
+  "visual_calyx": [
+    "dACA(R)",
+    "vACA(R)"
+  ],
+  "vision_exclusions": "주석 없음, APL, DPM, KC, 이름에 PN, 신경조절 ^(OA-|PPL|PAM|5-HT), lACA(세지 않음)",
+  "synapse_count_rois": {
+    "J_pn": [
+      "CA(R)"
+    ],
+    "J_vis": [
+      "dACA(R)",
+      "vACA(R)"
+    ],
+    "W0": [
+      "PED(R)",
+      "a1(R)",
+      "a2(R)",
+      "a3(R)",
+      "a'1(R)",
+      "a'2(R)",
+      "a'3(R)",
+      "b1(R)",
+      "b2(R)",
+      "b'1(R)",
+      "b'2(R)",
+      "g1(R)",
+      "g2(R)",
+      "g3(R)",
+      "g4(R)",
+      "g5(R)"
+    ]
+  },
+  "counts": {
+    "v1_selected": {
+      "pn": 106,
+      "kc": 1575,
+      "mbon": 47,
+      "glomeruli": 51
+    },
+    "selected": {
+      "pn": 106,
+      "vis": 26,
+      "kc": 1633,
+      "kc_olf": 1575,
+      "kc_vis": 58,
+      "kc_both": 0,
+      "mbon": 47
+    },
+    "vis_candidates_after_exclusion": 42,
+    "vis_types": {
+      "SLP360": 5,
+      "aMe26": 3,
+      "SLP457": 2,
+      "SLP371": 2,
+      "SLP362": 2,
+      "PLP095": 2,
+      "CL258": 2,
+      "SLP448": 1,
+      "SLP223": 1,
+      "LHPV3c1": 1,
+      "CL063": 1,
+      "PLP091": 1,
+      "SLP438": 1,
+      "aMe12": 1,
+      "CL357": 1
+    },
+    "vis_kc_types": {
+      "KCab-p": 56,
+      "KCg-s4": 1,
+      "KCg-d": 1
+    },
+    "mbon_added_vs_v1": [],
+    "mbon_removed_vs_v1": [],
+    "isolated_in_circuit": {
+      "vis_without_kc": 4,
+      "kc_without_input": 0,
+      "kc_without_mbon": 0
+    }
+  },
+  "sort_rule": "모든 뉴런 배열은 bodyId 오름차순. 후각 PN · KC 선택은 mb_raw_v1과 같은 규칙",
+  "raw_sha256": "ff07c6880e64024fc242ffb0e3bbb859b387ebf9d83b4fc0a34e4a681c9da6d7",
+  "attribution": "hemibrain v1.2.1, Janelia FlyEM. Scheffer et al. 2020, eLife 9:e57443. CC BY 4.0. 시각 입력 구분의 참고: Li et al. 2020, eLife 9:e62576",
+  "config": "configs/circuit_extract_v2.yaml",
+  "config_hash": "152eaa9daec33667"
+}
